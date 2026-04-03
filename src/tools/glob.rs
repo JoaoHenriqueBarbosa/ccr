@@ -32,10 +32,10 @@ pub(crate) fn glob_definition() -> ToolDefinition {
 }
 
 pub(crate) async fn execute_glob(
-    input: &serde_json::Value,
+    input: serde_json::Value,
     cwd: &WorkingDir,
 ) -> (ToolOutput, ToolResultStatus) {
-    let parsed: GlobInput = match serde_json::from_value(input.clone()) {
+    let parsed: GlobInput = match serde_json::from_value(input) {
         Ok(v) => v,
         Err(e) => {
             return (

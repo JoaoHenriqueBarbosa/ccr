@@ -187,7 +187,7 @@ impl WorkingDir {
         // Allow paths inside cwd OR in standard temp directories
         if resolved_str.starts_with(cwd_str.as_ref())
             || resolved_str.starts_with("/tmp")
-            || resolved_str.starts_with("/dev/")
+            || is_safe_dev_path(&resolved_str)
         {
             Ok(resolved_str)
         } else {
@@ -196,6 +196,14 @@ impl WorkingDir {
             })
         }
     }
+}
+
+/// Device paths that are safe for tools to read/write.
+const SAFE_DEV_PATHS: &[&str] = &["/dev/null", "/dev/stderr", "/dev/stdout"];
+
+/// Check if a `/dev/` path is in the safe allowlist.
+fn is_safe_dev_path(path: &str) -> bool {
+    SAFE_DEV_PATHS.contains(&path)
 }
 
 /// System prompt sent as the second block (after billing header).
@@ -241,6 +249,12 @@ impl InputBuffer {
     pub fn insert(&mut self, c: char) {
         self.text.0.insert(self.cursor.0, c);
         self.cursor.0 += c.len_utf8();
+    }
+
+    /// Insert a string at cursor (e.g. from paste). Advances cursor past it.
+    pub fn insert_str(&mut self, s: &str) {
+        self.text.0.insert_str(self.cursor.0, s);
+        self.cursor.0 += s.len();
     }
 
     /// Delete the char before cursor.
@@ -292,6 +306,73 @@ impl InputBuffer {
     #[allow(clippy::cast_possible_truncation)]
     pub fn display_cursor_offset(&self) -> TermCols {
         TermCols(self.text.0[..self.cursor.0].chars().count() as u16)
+    }
+
+    /// Replace the entire buffer contents, placing cursor at end.
+    pub fn set_text(&mut self, s: &str) {
+        self.text.0.clear();
+        self.text.0.push_str(s);
+        self.cursor.0 = self.text.0.len();
+    }
+}
+
+/// History index into `InputHistory` entries.
+#[derive(Debug, Clone, Copy, Default)]
+struct HistoryIndex(usize);
+
+/// Input history — stores previous submissions for Up/Down navigation.
+#[derive(Debug, Clone, Default)]
+pub struct InputHistory {
+    entries: Vec<String>,
+    /// Current position in history. `entries.len()` means "new input" (not browsing).
+    pos: HistoryIndex,
+    /// Stash of the current (unsent) input when user starts browsing history.
+    stash: String,
+}
+
+impl InputHistory {
+    /// Record a submitted input line.
+    pub fn push(&mut self, text: String) {
+        if !text.is_empty() {
+            // Avoid consecutive duplicates.
+            if self.entries.last() != Some(&text) {
+                self.entries.push(text);
+            }
+        }
+        self.pos.0 = self.entries.len();
+        self.stash.clear();
+    }
+
+    /// Navigate up (older). Returns the text to display, if changed.
+    #[must_use]
+    pub fn up(&mut self, current_input: &str) -> Option<&str> {
+        if self.entries.is_empty() {
+            return None;
+        }
+        if self.pos.0 == self.entries.len() {
+            // Entering history — stash current input.
+            current_input.clone_into(&mut self.stash);
+        }
+        if self.pos.0 > 0 {
+            self.pos.0 -= 1;
+            Some(&self.entries[self.pos.0])
+        } else {
+            None
+        }
+    }
+
+    /// Navigate down (newer). Returns the text to display, if changed.
+    #[must_use]
+    pub fn down(&mut self) -> Option<&str> {
+        if self.pos.0 >= self.entries.len() {
+            return None;
+        }
+        self.pos.0 += 1;
+        if self.pos.0 == self.entries.len() {
+            Some(&self.stash)
+        } else {
+            Some(&self.entries[self.pos.0])
+        }
     }
 }
 
@@ -437,5 +518,17 @@ impl std::fmt::Display for ToolOutput {
 impl AsRef<str> for ToolOutput {
     fn as_ref(&self) -> &str {
         &self.0
+    }
+}
+
+impl From<String> for ToolOutput {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl From<&str> for ToolOutput {
+    fn from(s: &str) -> Self {
+        Self(s.to_owned())
     }
 }

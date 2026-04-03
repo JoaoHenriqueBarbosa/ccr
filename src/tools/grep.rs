@@ -90,10 +90,10 @@ const GREP_MAX_OUTPUT_BYTES: usize = 20_000;
 
 /// Mirrors `src/tools/GrepTool/GrepTool.ts` — uses `rg` with full parameter support.
 pub(crate) async fn execute_grep(
-    input: &serde_json::Value,
+    input: serde_json::Value,
     cwd: &WorkingDir,
 ) -> (ToolOutput, ToolResultStatus) {
-    let parsed: GrepInput = match serde_json::from_value(input.clone()) {
+    let parsed: GrepInput = match serde_json::from_value(input) {
         Ok(v) => v,
         Err(e) => {
             return (

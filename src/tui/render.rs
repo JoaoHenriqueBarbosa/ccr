@@ -10,7 +10,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
 };
 
-use crate::types::{ContentBlock, ConversationMessage, Role, ScrollOffset, TermRows};
+use crate::types::{ContentBlock, ConversationMessage, MessageUuid, Role, ScrollOffset, TermRows};
 
 use super::state::App;
 
@@ -234,7 +234,23 @@ fn build_tool_result_lines(
 }
 
 /// Build a `MessageBlock` for a single assistant message.
-fn build_assistant_block(msg: &ConversationMessage) -> MessageBlock {
+/// Uses the `markdown_cache` to avoid re-parsing markdown on every frame.
+fn build_assistant_block(
+    msg: &ConversationMessage,
+    cache: &mut std::collections::HashMap<MessageUuid, Vec<Line<'static>>>,
+) -> MessageBlock {
+    let lines = cache
+        .entry(msg.uuid.clone())
+        .or_insert_with(|| build_assistant_lines(msg));
+    MessageBlock {
+        lines: lines.clone(),
+        bg: None,
+        spacing: Spacing::MarginTop,
+    }
+}
+
+/// Build rendered lines for an assistant message (uncached).
+fn build_assistant_lines(msg: &ConversationMessage) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
     for block in &msg.content {
         match block {
@@ -257,21 +273,17 @@ fn build_assistant_block(msg: &ConversationMessage) -> MessageBlock {
             _ => {}
         }
     }
-    MessageBlock {
-        lines,
-        bg: None,
-        spacing: Spacing::MarginTop,
-    }
+    lines
 }
 
 /// Convert all messages + streaming state into a list of renderable blocks.
-fn build_message_blocks(app: &App) -> Vec<MessageBlock> {
+fn build_message_blocks(app: &mut App) -> Vec<MessageBlock> {
     let mut blocks: Vec<MessageBlock> = Vec::with_capacity(app.messages.len() + 1);
 
     for msg in &app.messages {
         blocks.push(match msg.role {
             Role::User => build_user_block(msg),
-            Role::Assistant => build_assistant_block(msg),
+            Role::Assistant => build_assistant_block(msg, &mut app.markdown_cache),
         });
     }
 

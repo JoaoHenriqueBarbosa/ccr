@@ -73,21 +73,28 @@ pub struct AnthropicClient {
     api_key: ApiKey,
     model: ModelId,
     api_url: ApiUrl,
+    identity: DeviceIdentity,
 }
 
 impl AnthropicClient {
     #[must_use]
     pub fn new(api_key: ApiKey, model: ModelId) -> Self {
         Self {
-            client: Client::new(),
+            client: Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(30))
+                .pool_max_idle_per_host(5)
+                .build()
+                .expect("failed to build HTTP client"),
             api_key,
             model,
             api_url: ApiUrl::from_env_or_default(),
+            identity: read_identity(),
         }
     }
 
     /// Stream a messages API call, yielding SSE events through a channel.
     /// Mirrors `queryModelWithStreaming` in `claude.ts`.
+    /// Retries on 429 (rate limit) and 529 (overloaded) with exponential backoff.
     pub async fn stream(
         &self,
         messages: &[ApiMessage],
@@ -95,23 +102,38 @@ impl AnthropicClient {
         tools: &[ToolDefinition],
         tx: mpsc::UnboundedSender<StreamEvent>,
     ) -> crate::types::Result<()> {
+        const MAX_RETRIES: u32 = 3;
+        const INITIAL_BACKOFF_MS: u64 = 1000;
+
         let session_id = SessionId::new();
-        let request_id = RequestId::new();
         let is_oauth = self.api_key.is_oauth();
-        let identity = read_identity();
+        let body = self.build_request_body(messages, system, tools, &session_id, &self.identity)?;
 
-        let body = self.build_request_body(messages, system, tools, &session_id, &identity)?;
-        let response = self
-            .send_request(&body, &session_id, &request_id, is_oauth)
-            .await?;
+        let mut attempt = 0;
+        loop {
+            let request_id = RequestId::new();
+            let response = self
+                .send_request(&body, &session_id, &request_id, is_oauth)
+                .await?;
 
-        if !response.status().is_success() {
+            if response.status().is_success() {
+                return consume_sse_stream(response, tx).await;
+            }
+
             let status = response.status();
-            let body = ResponseBody::from(response.text().await.unwrap_or_default());
-            return Err(AppError::ApiStatus { status, body });
-        }
+            let is_retryable =
+                status.as_u16() == 429 || status.as_u16() == 529 || status.is_server_error();
 
-        consume_sse_stream(response, tx).await
+            if !is_retryable || attempt >= MAX_RETRIES {
+                let body = ResponseBody::from(response.text().await.unwrap_or_default());
+                return Err(AppError::ApiStatus { status, body });
+            }
+
+            // Exponential backoff: 1s, 2s, 4s
+            let delay = INITIAL_BACKOFF_MS * 2_u64.pow(attempt);
+            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+            attempt += 1;
+        }
     }
 
     /// Build the JSON request body for the messages API.
@@ -238,7 +260,14 @@ async fn consume_sse_stream(
             buffer.drain(..2);
 
             // Now it's safe to convert — we have a complete SSE event
-            let event_text = String::from_utf8_lossy(&event_bytes);
+            let event_text = match String::from_utf8(event_bytes) {
+                Ok(s) => s,
+                Err(e) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("[sse] invalid UTF-8 in SSE event, lossy conversion applied");
+                    String::from_utf8_lossy(e.as_bytes()).into_owned()
+                }
+            };
 
             match parse_sse_event(&event_text) {
                 SseParseResult::Event(event) => {
@@ -305,8 +334,13 @@ fn parse_sse_event(text: &str) -> SseParseResult {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+
+    /// Expose `find_double_newline` for cross-module property tests.
+    pub(crate) fn call_find_double_newline(buf: &[u8]) -> Option<usize> {
+        find_double_newline(buf)
+    }
 
     #[test]
     fn parse_ping_event() {
@@ -396,5 +430,66 @@ data: {"type": "error", "error": {"type": "rate_limit_error", "message": "Rate l
         let bytes = event.as_bytes();
         // This test just verifies find_double_newline works on raw bytes
         assert!(find_double_newline(bytes).is_some());
+    }
+
+    /// Simulate multi-chunk SSE buffer accumulation — events split across chunks.
+    #[test]
+    fn multi_chunk_sse_accumulation() {
+        let full = b"event: ping\ndata: {\"type\": \"ping\"}\n\nevent: message_stop\ndata: {\"type\": \"message_stop\"}\n\n";
+
+        // Split at an arbitrary byte boundary (middle of first event).
+        let (chunk1, chunk2) = full.split_at(15);
+
+        let mut buffer: Vec<u8> = Vec::new();
+        buffer.extend_from_slice(chunk1);
+
+        // First chunk: no complete event yet.
+        assert!(find_double_newline(&buffer).is_none());
+
+        buffer.extend_from_slice(chunk2);
+
+        // After second chunk: both events are parseable.
+        let mut events = Vec::new();
+        while let Some(pos) = find_double_newline(&buffer) {
+            let event_bytes: Vec<u8> = buffer.drain(..pos).collect();
+            buffer.drain(..2); // drain \n\n
+            let text = String::from_utf8(event_bytes).unwrap();
+            events.push(parse_sse_event(&text));
+        }
+        assert_eq!(events.len(), 2);
+        assert!(matches!(events[0], SseParseResult::Event(StreamEvent::Ping)));
+        assert!(matches!(
+            events[1],
+            SseParseResult::Event(StreamEvent::MessageStop)
+        ));
+    }
+
+    /// Simulate UTF-8 multi-byte character split across TCP chunks.
+    #[test]
+    fn utf8_multibyte_split_across_chunks() {
+        // "café" contains é (0xC3 0xA9) — split between those two bytes.
+        let event = "event: content_block_delta\ndata: {\"type\": \"content_block_delta\", \"index\": 0, \"delta\": {\"type\": \"text_delta\", \"text\": \"café\"}}\n\n";
+        let bytes = event.as_bytes();
+
+        // Find the é and split between its bytes.
+        let e_pos = bytes.windows(2).position(|w| w == [0xC3, 0xA9]).unwrap();
+        let (chunk1, chunk2) = bytes.split_at(e_pos + 1); // split between 0xC3 and 0xA9
+
+        let mut buffer: Vec<u8> = Vec::new();
+        buffer.extend_from_slice(chunk1);
+
+        // Chunk 1 has incomplete UTF-8 but buffer doesn't have \n\n yet OR has it.
+        // Either way, the buffer accumulates safely as raw bytes.
+        buffer.extend_from_slice(chunk2);
+
+        // After both chunks, we should find the event boundary and parse correctly.
+        let pos = find_double_newline(&buffer).unwrap();
+        let event_bytes: Vec<u8> = buffer.drain(..pos).collect();
+        let text = String::from_utf8(event_bytes).unwrap();
+        let result = parse_sse_event(&text);
+        assert!(matches!(
+            result,
+            SseParseResult::Event(StreamEvent::ContentBlockDelta { .. })
+        ));
     }
 }

@@ -15,7 +15,8 @@ mod render;
 mod state;
 
 use crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers, MouseEventKind,
+    self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+    Event, KeyCode, KeyModifiers, MouseEventKind,
 };
 use crossterm::execute;
 use ratatui::DefaultTerminal;
@@ -35,11 +36,15 @@ use state::{App, BackendEvent, RunState};
 
 pub fn run(api_key: ApiKey, model: ModelId) -> crate::types::Result<()> {
     let mut terminal = ratatui::init();
-    execute!(std::io::stdout(), EnableMouseCapture)?;
+    execute!(std::io::stdout(), EnableMouseCapture, EnableBracketedPaste)?;
 
     let result = run_app(&mut terminal, api_key, model);
 
-    execute!(std::io::stdout(), DisableMouseCapture)?;
+    execute!(
+        std::io::stdout(),
+        DisableMouseCapture,
+        DisableBracketedPaste
+    )?;
     ratatui::restore();
 
     result
@@ -82,6 +87,9 @@ fn run_app(
                     &system_prompt,
                     &tools,
                 );
+            }
+            Event::Paste(text) => {
+                app.input.insert_str(&text);
             }
             _ => {}
         }
@@ -178,14 +186,29 @@ fn handle_key_event(
         KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             app.state = RunState::Quitting;
         }
+        KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            app.input.insert('\n');
+        }
         KeyCode::Enter => {
             handle_enter(app, backend_rx, client, system_prompt, tools);
         }
         KeyCode::Backspace => app.input.backspace(),
         KeyCode::Left => app.input.move_left(),
         KeyCode::Right => app.input.move_right(),
-        KeyCode::Up => app.scroll = app.scroll.scroll_up(3),
-        KeyCode::Down => app.scroll = app.scroll.scroll_down(3),
+        KeyCode::Up if app.is_streaming() => app.scroll = app.scroll.scroll_up(3),
+        KeyCode::Down if app.is_streaming() => app.scroll = app.scroll.scroll_down(3),
+        KeyCode::Up => {
+            if let Some(text) = app.history.up(app.input.text()) {
+                let text = text.to_owned();
+                app.input.set_text(&text);
+            }
+        }
+        KeyCode::Down => {
+            if let Some(text) = app.history.down() {
+                let text = text.to_owned();
+                app.input.set_text(&text);
+            }
+        }
         KeyCode::Char(c) => app.input.insert(c),
         _ => {}
     }
@@ -229,6 +252,7 @@ fn handle_enter(
     }
 
     let user_text = app.input.take();
+    app.history.push(user_text.clone());
     app.scroll = ScrollOffset::default();
     app.messages
         .push(ConversationMessage::user_text(&user_text));

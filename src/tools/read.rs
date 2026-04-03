@@ -2,9 +2,8 @@
 
 use std::fmt::Write;
 
-use super::helpers::format_file_size;
 use crate::types::{
-    LineLimit, LineOffset, MaxReadFileSize, ReadInput, ToolDefinition, ToolOutput,
+    FileSizeBytes, LineLimit, LineOffset, MaxReadFileSize, ReadInput, ToolDefinition, ToolOutput,
     ToolResultStatus, WorkingDir,
 };
 
@@ -43,10 +42,10 @@ pub(crate) fn read_definition() -> ToolDefinition {
 }
 
 pub(crate) async fn execute_read(
-    input: &serde_json::Value,
+    input: serde_json::Value,
     cwd: &WorkingDir,
 ) -> (ToolOutput, ToolResultStatus) {
-    let parsed: ReadInput = match serde_json::from_value(input.clone()) {
+    let parsed: ReadInput = match serde_json::from_value(input) {
         Ok(v) => v,
         Err(e) => return read_err(format!("Invalid Read input: {e}")),
     };
@@ -102,38 +101,33 @@ fn format_read_output(
     parsed: &ReadInput,
     path: &str,
 ) -> (ToolOutput, ToolResultStatus) {
-    let lines: Vec<&str> = content.lines().collect();
-
-    if lines.is_empty() && content.is_empty() {
+    if content.is_empty() {
         return (
             ToolOutput::new("Warning: the file exists but the contents are empty.".into()),
             ToolResultStatus::Success,
         );
     }
 
+    let total_lines = content.lines().count();
     let offset = parsed.offset.map_or(0, LineOffset::value);
     let limit = parsed
         .limit
         .map_or(LineLimit::DEFAULT.value(), LineLimit::value);
 
-    if offset >= lines.len() {
+    if offset >= total_lines {
         let raw_offset = parsed.offset.map_or(0, LineOffset::raw);
         return (
             ToolOutput::new(format!(
-                "The file has {} lines, but the offset is {raw_offset}. \
+                "The file has {total_lines} lines, but the offset is {raw_offset}. \
                  The file is shorter than the provided offset.",
-                lines.len(),
             )),
             ToolResultStatus::Error,
         );
     }
 
-    let start = offset;
-    let end = (start + limit).min(lines.len());
-
     let mut result = String::new();
-    for (i, line) in lines[start..end].iter().enumerate() {
-        let _ = writeln!(result, "{}\t{line}", start + i + 1);
+    for (i, line) in content.lines().skip(offset).take(limit).enumerate() {
+        let _ = writeln!(result, "{}\t{line}", offset + i + 1);
     }
 
     if result.is_empty() {
@@ -214,8 +208,8 @@ async fn check_file_size(path: &str) -> std::result::Result<(), crate::types::Ap
         Err(crate::types::AppError::FileTooLarge {
             message: format!(
                 "File is too large to read: {} (max {}).",
-                format_file_size(size),
-                format_file_size(max),
+                FileSizeBytes::from_u64(size),
+                FileSizeBytes::from_u64(max),
             ),
         })
     } else {
@@ -223,12 +217,6 @@ async fn check_file_size(path: &str) -> std::result::Result<(), crate::types::Ap
     }
 }
 
-/// Format a byte count as human-readable size (KB/MB/GB).
-#[must_use]
-#[allow(
-    clippy::cast_precision_loss,
-    reason = "file sizes fit comfortably in f64"
-)]
 /// Detect binary content by checking the first 8192 bytes for null bytes.
 async fn check_binary_content(path: &str) -> Option<String> {
     use tokio::io::AsyncReadExt;
@@ -358,22 +346,22 @@ mod tests {
 
     #[test]
     fn format_size_bytes() {
-        assert_eq!(format_file_size(500), "500 bytes");
+        assert_eq!(FileSizeBytes::new(500).to_string(), "500 bytes");
     }
 
     #[test]
     fn format_size_kb() {
-        assert_eq!(format_file_size(2048), "2.0 KB");
+        assert_eq!(FileSizeBytes::new(2048).to_string(), "2.0 KB");
     }
 
     #[test]
     fn format_size_mb() {
-        assert_eq!(format_file_size(10_485_760), "10.0 MB");
+        assert_eq!(FileSizeBytes::new(10_485_760).to_string(), "10.0 MB");
     }
 
     #[test]
     fn format_size_gb() {
-        assert_eq!(format_file_size(2_147_483_648), "2.0 GB");
+        assert_eq!(FileSizeBytes::new(2_147_483_648).to_string(), "2.0 GB");
     }
 
     // ── device path blocking ──

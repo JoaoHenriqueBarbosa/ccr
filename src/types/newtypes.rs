@@ -31,7 +31,7 @@ impl From<&str> for ToolName {
 }
 
 /// UUID assigned to each `ConversationMessage`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MessageUuid(pub(super) String);
 
 impl MessageUuid {

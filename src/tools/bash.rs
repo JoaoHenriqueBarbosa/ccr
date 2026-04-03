@@ -32,10 +32,10 @@ pub(crate) fn bash_definition() -> ToolDefinition {
 
 /// Mirrors `src/tools/BashTool/BashTool.ts`.
 pub(crate) async fn execute_bash(
-    input: &serde_json::Value,
+    input: serde_json::Value,
     cwd: &WorkingDir,
 ) -> (ToolOutput, ToolResultStatus) {
-    let parsed: BashInput = match serde_json::from_value(input.clone()) {
+    let parsed: BashInput = match serde_json::from_value(input) {
         Ok(v) => v,
         Err(e) => {
             return (
@@ -45,21 +45,50 @@ pub(crate) async fn execute_bash(
         }
     };
 
-    // Stub: background execution not yet implemented
     if parsed
         .run_in_background
         .is_some_and(ExecutionMode::is_enabled)
     {
-        return (
-            ToolOutput::new("Background execution not yet implemented".into()),
-            ToolResultStatus::Error,
-        );
+        let shell = crate::types::UserShell::from_env();
+        match Command::new(shell.program())
+            .arg("-l")
+            .arg("-c")
+            .arg(parsed.command.as_ref())
+            .current_dir(cwd.as_ref())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(mut child) => {
+                // Detach — don't await the child.
+                tokio::spawn(async move {
+                    let _ = child.wait().await;
+                });
+                return (
+                    ToolOutput::new(format!(
+                        "Command started in background: {}",
+                        parsed.command.as_ref()
+                    )),
+                    ToolResultStatus::Success,
+                );
+            }
+            Err(e) => {
+                return (
+                    ToolOutput::new(format!("Failed to start background command: {e}")),
+                    ToolResultStatus::Error,
+                );
+            }
+        }
     }
 
     let timeout = parsed
         .timeout
         .map_or(TimeoutMs::DEFAULT, TimeoutMs::clamped);
 
+    // SECURITY NOTE: `-l` (login shell) loads the user's .bashrc/.zshrc, which
+    // may contain aliases or functions that alter command behavior. This is a
+    // potential attack vector in malicious repositories. The TS original also
+    // uses `-l`; we preserve parity but document the risk.
     let shell = crate::types::UserShell::from_env();
     let result = tokio::time::timeout(
         std::time::Duration::from_millis(timeout.as_millis()),
@@ -109,7 +138,10 @@ pub(crate) fn format_command_output(
     }
 
     // Strip leading and trailing blank lines.
-    result = strip_blank_lines(&result);
+    #[allow(clippy::assigning_clones, reason = "borrow conflict prevents clone_into")]
+    {
+        result = strip_blank_lines(&result).to_owned();
+    }
 
     let exit_code = ExitCode::new(output.status.code().unwrap_or(-1));
     let is_semantic_success = is_benign_exit(command, exit_code);

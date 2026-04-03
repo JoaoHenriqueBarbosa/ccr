@@ -91,37 +91,27 @@ impl_string_newtype!(
     tools::FetchPrompt,
 );
 
-// Re-export everything so `use crate::types::Foo` keeps working.
-// Some types are re-exported for future modules and are not yet consumed.
-#[allow(unused_imports)]
+// Re-export types consumed by other modules via `use crate::types::Foo`.
 mod reexports {
-    pub use super::api::{
-        ApiError, ApiResponse, ApiResponseId, ApiTokens, BlockIndex, ContentBlock, Delta,
-        DeltaSignature, DeltaText, DeltaThinking, ErrorMessage, ErrorType, MessageDeltaBody,
-        MessageDeltaUsage, PartialJson, RedactedData, ServerToolUsage, StreamEvent, TextCitation,
-        TextContent, ThinkingContent, ThinkingSignature, Usage, WebSearchToolResultContent,
-    };
+    pub use super::api::{ContentBlock, Delta, DeltaText, DeltaThinking, StreamEvent, Usage};
     pub use super::error::{AppError, ResponseBody, Result};
     pub use super::message::{ApiMessage, ConversationMessage, MessageOrigin, Role};
     pub use super::newtypes::{
         AccountUuid, ApiKey, ApiUrl, DeviceId, DeviceIdentity, MaxTokens, MessageUuid, ModelId,
-        RequestId, SessionId, ShortModelName, StopReason, StopSequence, ToolName, ToolUseId,
+        RequestId, SessionId, ShortModelName, StopReason, ToolName, ToolUseId,
     };
     pub use super::tools::{
-        BashInput, BuiltinTool, CaseSensitivity, CommandDescription, CommandText, ContextLines,
-        EditInput, ExecutionMode, ExitCode, FetchPrompt, FetchTimeoutSecs, FetchUrl, FileContent,
-        FileEncoding, FilePath, FileSizeBytes, GlobFilter, GlobInput, GlobPattern, GlobResultLimit,
-        GlobResultOffset, GrepInput, GrepOutputMode, HeadLimit, LargeOutputThreshold, LineEndings,
-        LineLimit, LineNumberDisplay, LineOffset, MaxHttpContentLength, MaxMarkdownLength,
-        MaxOutputLen, MaxReadFileSize, MaxUrlLength, MaxWriteFileSize, MultilineSearch, NewString,
-        OldString, PdfPages, PreviewLen, ReadInput, ReplaceMode, ResultOffset, RgFileType,
-        SearchPath, SearchPattern, TimeoutMs, ToolDefinition, ToolDescription, ToolResultStatus,
-        UserShell, WebFetchInput, WriteInput,
+        BashInput, BuiltinTool, CaseSensitivity, EditInput, ExecutionMode, ExitCode,
+        FetchTimeoutSecs, FileEncoding, FileSizeBytes, GlobInput, GlobResultLimit, GlobResultOffset,
+        GrepInput, GrepOutputMode, HeadLimit, LargeOutputThreshold, LineEndings, LineLimit,
+        LineNumberDisplay, LineOffset, MaxHttpContentLength, MaxMarkdownLength, MaxOutputLen,
+        MaxReadFileSize, MaxUrlLength, MaxWriteFileSize, MultilineSearch, PreviewLen, ReadInput,
+        ResultOffset, TimeoutMs, ToolDefinition, ToolResultStatus, UserShell, WebFetchInput,
+        WriteInput,
     };
     pub use super::tui_types::{
-        CompletedTimer, IdleTimer, InputBuffer, ScrollOffset, ShortPath, StreamingBuffer,
-        SystemPrompt, TermCols, TermRows, TimingTimer, TokenCount, ToolOutput, TurnTimer,
-        WorkingDir,
+        InputBuffer, InputHistory, ScrollOffset, ShortPath, StreamingBuffer, SystemPrompt,
+        TermRows, TokenCount, ToolOutput, TurnTimer, WorkingDir,
     };
 }
 pub use reexports::*;

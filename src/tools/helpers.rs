@@ -50,17 +50,27 @@ pub fn encode_for_write(content: &str, encoding: FileEncoding, endings: LineEndi
         }
     }
 }
-pub(crate) fn strip_blank_lines(s: &str) -> String {
-    let lines: Vec<&str> = s.lines().collect();
-    let start = lines
-        .iter()
-        .position(|l| !l.trim().is_empty())
-        .unwrap_or(lines.len());
-    let end = lines
-        .iter()
-        .rposition(|l| !l.trim().is_empty())
-        .map_or(start, |i| i + 1);
-    lines[start..end].join("\n")
+pub(crate) fn strip_blank_lines(s: &str) -> &str {
+    // Find first non-blank line start — scan forward through line boundaries.
+    let mut start = 0;
+    for line in s.lines() {
+        if !line.trim().is_empty() {
+            // `line` is a subslice of `s` — compute its offset.
+            start = line.as_ptr() as usize - s.as_ptr() as usize;
+            break;
+        }
+    }
+
+    // Find last non-blank line end — scan backward.
+    let mut end = start;
+    for line in s.lines() {
+        if !line.trim().is_empty() {
+            let line_start = line.as_ptr() as usize - s.as_ptr() as usize;
+            end = line_start + line.len();
+        }
+    }
+
+    &s[start..end]
 }
 
 /// Extract the base command name from a shell command string.
@@ -170,22 +180,6 @@ pub(crate) fn floor_char_boundary(s: &str, i: usize) -> usize {
 }
 
 #[allow(clippy::cast_precision_loss, reason = "display-only formatting")]
-pub(crate) fn format_file_size(bytes: u64) -> String {
-    const KB: u64 = 1024;
-    const MB: u64 = 1024 * KB;
-    const GB: u64 = 1024 * MB;
-
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.1} KB", bytes as f64 / KB as f64)
-    } else {
-        format!("{bytes} bytes")
-    }
-}
-
 pub(crate) fn to_relative_path(abs_path: &str, cwd: &str) -> String {
     let normalized_cwd = if cwd.ends_with('/') {
         cwd.to_string()
@@ -369,5 +363,37 @@ mod tests {
     #[test]
     fn floor_boundary_beyond_len() {
         assert_eq!(floor_char_boundary("hi", 100), 2);
+    }
+
+    // ── Property tests ──
+
+    use proptest::prelude::*;
+
+    proptest! {
+        /// `floor_char_boundary` always returns a valid char boundary.
+        #[test]
+        fn floor_char_boundary_always_valid(s in "\\PC{0,200}", i in 0_usize..300) {
+            let result = floor_char_boundary(&s, i);
+            prop_assert!(s.is_char_boundary(result), "not a char boundary: {result}");
+            prop_assert!(result <= i.min(s.len()));
+        }
+
+        /// `truncate_output` with default max never panics on any input.
+        #[test]
+        fn truncate_output_never_panics(s in "\\PC{0,500}") {
+            let result = truncate_output(&s, MaxOutputLen::DEFAULT);
+            // Should be valid UTF-8 (it's a String, so it is by construction).
+            prop_assert!(!result.is_empty() || s.is_empty());
+        }
+
+        /// `find_double_newline` result, if Some, is always at a `\n\n` position.
+        #[test]
+        fn find_double_newline_correct(s in "\\PC{0,300}") {
+            let buf = s.as_bytes();
+            if let Some(pos) = crate::api::tests::call_find_double_newline(buf) {
+                prop_assert_eq!(buf[pos], b'\n');
+                prop_assert_eq!(buf[pos + 1], b'\n');
+            }
+        }
     }
 }

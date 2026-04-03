@@ -22,10 +22,10 @@ pub(crate) fn write_definition() -> ToolDefinition {
 }
 
 pub(crate) async fn execute_write(
-    input: &serde_json::Value,
+    input: serde_json::Value,
     cwd: &WorkingDir,
 ) -> (ToolOutput, ToolResultStatus) {
-    let parsed: WriteInput = match serde_json::from_value(input.clone()) {
+    let parsed: WriteInput = match serde_json::from_value(input) {
         Ok(v) => v,
         Err(e) => {
             return (

@@ -23,10 +23,10 @@ pub(crate) fn edit_definition() -> ToolDefinition {
 }
 
 pub(crate) async fn execute_edit(
-    input: &serde_json::Value,
+    input: serde_json::Value,
     cwd: &WorkingDir,
 ) -> (ToolOutput, ToolResultStatus) {
-    let parsed: EditInput = match serde_json::from_value(input.clone()) {
+    let parsed: EditInput = match serde_json::from_value(input) {
         Ok(v) => v,
         Err(e) => {
             return (

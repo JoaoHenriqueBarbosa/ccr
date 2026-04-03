@@ -20,8 +20,8 @@ pub(crate) fn webfetch_definition() -> ToolDefinition {
     }
 }
 
-pub(crate) async fn execute_webfetch(input: &serde_json::Value) -> (ToolOutput, ToolResultStatus) {
-    let parsed: WebFetchInput = match serde_json::from_value(input.clone()) {
+pub(crate) async fn execute_webfetch(input: serde_json::Value) -> (ToolOutput, ToolResultStatus) {
+    let parsed: WebFetchInput = match serde_json::from_value(input) {
         Ok(v) => v,
         Err(e) => {
             return (

@@ -177,14 +177,14 @@ pub async fn backend_turn(
             return;
         }
 
-        for (tool_id, tool_name, tool_input) in &tool_uses {
+        for (tool_id, tool_name, tool_input) in tool_uses {
             let _ = tx.send(BackendEvent::ToolStart {
                 name: tool_name.clone(),
             });
 
-            let (result, is_error) = execute_tool(tool_name, tool_input, &cwd).await;
+            let (result, is_error) = execute_tool(&tool_name, tool_input, &cwd).await;
 
-            let result_msg = ConversationMessage::tool_result(tool_id, &result, is_error);
+            let result_msg = ConversationMessage::tool_result(&tool_id, &result, is_error);
             messages.push(result_msg.to_api_message());
 
             if tx.send(BackendEvent::ToolResult(result_msg)).is_err() {

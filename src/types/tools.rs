@@ -787,6 +787,12 @@ impl FileSizeBytes {
     pub fn new(bytes: usize) -> Self {
         Self(bytes)
     }
+
+    /// Wrap a `u64` byte count (saturating to `usize`).
+    #[allow(clippy::cast_possible_truncation, reason = "file sizes fit in usize on 64-bit")]
+    pub fn from_u64(bytes: u64) -> Self {
+        Self(bytes as usize)
+    }
 }
 
 impl std::fmt::Display for FileSizeBytes {
@@ -795,16 +801,16 @@ impl std::fmt::Display for FileSizeBytes {
         reason = "display-only formatting; exact precision not needed"
     )]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        const KIB: usize = 1024;
-        const MIB: usize = 1024 * KIB;
-        const GIB: usize = 1024 * MIB;
+        const KB: usize = 1024;
+        const MB: usize = 1024 * KB;
+        const GB: usize = 1024 * MB;
 
-        if self.0 >= GIB {
-            write!(f, "{:.1} GiB", self.0 as f64 / GIB as f64)
-        } else if self.0 >= MIB {
-            write!(f, "{:.1} MiB", self.0 as f64 / MIB as f64)
-        } else if self.0 >= KIB {
-            write!(f, "{:.1} KiB", self.0 as f64 / KIB as f64)
+        if self.0 >= GB {
+            write!(f, "{:.1} GB", self.0 as f64 / GB as f64)
+        } else if self.0 >= MB {
+            write!(f, "{:.1} MB", self.0 as f64 / MB as f64)
+        } else if self.0 >= KB {
+            write!(f, "{:.1} KB", self.0 as f64 / KB as f64)
         } else {
             write!(f, "{} bytes", self.0)
         }

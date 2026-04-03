@@ -16,15 +16,12 @@ use crate::types::{
     BuiltinTool, ToolDefinition, ToolName, ToolOutput, ToolResultStatus, WorkingDir,
 };
 
-// Re-export shared utilities that other modules need.
-#[allow(unused_imports)]
-pub use helpers::{detect_file_encoding, encode_for_write, expand_path};
 
 /// Execute a tool by name with given input. Returns `(result_text, status)`.
 /// Mirrors the TS `runTools()` in `src/services/tools/toolOrchestration.ts`.
 pub async fn execute_tool(
     name: &ToolName,
-    input: &serde_json::Value,
+    input: serde_json::Value,
     cwd: &WorkingDir,
 ) -> (ToolOutput, ToolResultStatus) {
     let Some(tool) = BuiltinTool::from_name(name) else {

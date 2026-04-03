@@ -1,4 +1,6 @@
 use super::*;
+use super::api::ApiTokens;
+use super::tui_types::{TermCols, TimingTimer};
 use proptest::prelude::*;
 
 // ─── InputBuffer property tests ─────────────────────────────
@@ -310,10 +312,17 @@ fn validate_path_tmp_allowed() {
 }
 
 #[test]
-fn validate_path_dev_allowed() {
+fn validate_path_dev_null_allowed() {
     let cwd = WorkingDir::current();
     let result = cwd.validate_path("/dev/null");
     assert!(result.is_ok());
+}
+
+#[test]
+fn validate_path_dev_sda_blocked() {
+    let cwd = WorkingDir::current();
+    let result = cwd.validate_path("/dev/sda");
+    assert!(result.is_err());
 }
 
 #[test]

@@ -1,8 +1,13 @@
 //! Application state and typed events between backend and UI.
 
+use std::collections::HashMap;
+
+use ratatui::text::Line;
+
 use crate::types::{
-    AppError, ConversationMessage, DeltaText, DeltaThinking, InputBuffer, ModelId, ScrollOffset,
-    ShortModelName, ShortPath, StreamingBuffer, TokenCount, ToolName, TurnTimer, WorkingDir,
+    AppError, ConversationMessage, DeltaText, DeltaThinking, InputBuffer, InputHistory,
+    MessageUuid, ModelId, ScrollOffset, ShortModelName, ShortPath, StreamingBuffer, TokenCount,
+    ToolName, TurnTimer, WorkingDir,
 };
 
 // ─── TUI-local newtypes ─────────────────────────────────────────
@@ -81,6 +86,7 @@ impl RefreshInterval {
 pub struct App {
     pub messages: Vec<ConversationMessage>,
     pub input: InputBuffer,
+    pub history: InputHistory,
     pub scroll: ScrollOffset,
     pub total_content_height: crate::types::TermRows,
     pub streaming: StreamingBuffer,
@@ -93,6 +99,9 @@ pub struct App {
     pub hostname: Hostname,
     pub display_path: ShortPath,
     pub display_model: ShortModelName,
+    /// Cache of rendered markdown lines per message UUID.
+    /// Only populated for completed messages — streaming content is re-rendered each frame.
+    pub markdown_cache: HashMap<MessageUuid, Vec<Line<'static>>>,
     git_branch_updated: std::time::Instant,
 }
 
@@ -105,6 +114,7 @@ impl App {
         Self {
             messages: Vec::new(),
             input: InputBuffer::default(),
+            history: InputHistory::default(),
             scroll: ScrollOffset::default(),
             total_content_height: crate::types::TermRows::default(),
             streaming: StreamingBuffer::default(),
@@ -119,6 +129,7 @@ impl App {
             ),
             display_path,
             display_model,
+            markdown_cache: HashMap::new(),
             git_branch_updated: std::time::Instant::now(),
         }
     }
