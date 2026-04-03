@@ -94,8 +94,10 @@ impl MeasuredBlocks {
 }
 
 impl ViewportSlice {
+    /// Render content into `content_area` and the scrollbar into `scrollbar_area`.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    fn render(self, f: &mut Frame, area: Rect) {
+    fn render(self, f: &mut Frame, content_area: Rect, scrollbar_area: Rect) {
+        let area = content_area;
         let mut y: i32 = -(self.scroll.as_i32());
 
         for (block, &h_total) in self.blocks.iter().zip(&self.heights) {
@@ -152,7 +154,7 @@ impl ViewportSlice {
                 .end_symbol(None)
                 .track_symbol(Some("│"))
                 .thumb_symbol("█");
-            f.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
+            f.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
         }
     }
 }
@@ -349,13 +351,19 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 }
 
 fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
+    // Reserve 1 column for the scrollbar so content never overlaps it.
+    let content_width = area.width.saturating_sub(1);
     let prepared = PreparedBlocks {
-        blocks: build_message_blocks(app, area.width),
+        blocks: build_message_blocks(app, content_width),
     };
-    let measured = prepared.measure(area.width);
+    let measured = prepared.measure(content_width);
     app.total_content_height = measured.total_height;
+    let content_area = Rect {
+        width: content_width,
+        ..area
+    };
     let viewport = measured.clip_to_viewport(area.height, app.scroll);
-    viewport.render(f, area);
+    viewport.render(f, content_area, area);
 }
 
 #[allow(clippy::cast_possible_truncation)] // elapsed values are small after division
