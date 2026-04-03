@@ -15,6 +15,7 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
 };
+use unicode_width::UnicodeWidthStr;
 use syntect::{
     easy::HighlightLines,
     highlighting::ThemeSet,
@@ -278,15 +279,12 @@ impl MarkdownRenderer<'_> {
                 self.pending_separator = PendingSeparator::BlankLine;
             }
             TagEnd::TableHead => {
-                self.current_row.push(self.current_cell.clone());
-                self.current_cell.clear();
+                // Cells already pushed by End(TableCell) — just save the row.
                 self.table_rows.push(self.current_row.clone());
                 self.current_row.clear();
                 self.table_row_kind = TableRowKind::Body;
             }
             TagEnd::TableRow => {
-                self.current_row.push(self.current_cell.clone());
-                self.current_cell.clear();
                 self.table_rows.push(self.current_row.clone());
                 self.current_row.clear();
             }
@@ -467,7 +465,7 @@ pub fn markdown_to_lines(text: &str) -> Vec<Line<'static>> {
     renderer.finish()
 }
 
-/// Render a table as aligned text lines.
+/// Render a table with full box-drawing borders and row separators.
 fn render_table(rows: &[Vec<Vec<Span<'static>>>], lines: &mut Vec<Line<'static>>) {
     if rows.is_empty() {
         return;
@@ -479,15 +477,19 @@ fn render_table(rows: &[Vec<Vec<Span<'static>>>], lines: &mut Vec<Line<'static>>
     }
 
     let widths = compute_column_widths(rows, col_count);
-    let border_style = Style::default().fg(Color::DarkGray);
+    let bs = Style::default().fg(Color::DarkGray);
+
+    // Top border: ┌─┬─┐
+    push_horizontal_border(lines, &widths, col_count, bs, "┌", "┬", "┐");
 
     for (row_idx, row) in rows.iter().enumerate() {
+        // Data row: │ cell │ cell │
         let mut spans: Vec<Span<'static>> = Vec::new();
-        spans.push(Span::styled("│", border_style));
+        spans.push(Span::styled("│", bs));
 
         for (col_idx, cell) in row.iter().enumerate() {
             let w = widths.get(col_idx).copied().unwrap_or(0);
-            let text_len: usize = cell.iter().map(|s| s.content.len()).sum();
+            let text_len: usize = cell.iter().map(|s| s.content.width()).sum();
             let padding = w.saturating_sub(text_len);
 
             spans.push(Span::raw(" "));
@@ -495,31 +497,34 @@ fn render_table(rows: &[Vec<Vec<Span<'static>>>], lines: &mut Vec<Line<'static>>
                 spans.push(s.clone());
             }
             spans.push(Span::raw(" ".repeat(padding + 1)));
-            spans.push(Span::styled("│", border_style));
+            spans.push(Span::styled("│", bs));
         }
 
-        // Fill missing columns
+        // Fill missing columns.
         for col_idx in row.len()..col_count {
             let w = widths.get(col_idx).copied().unwrap_or(0);
             spans.push(Span::raw(" ".repeat(w + 2)));
-            spans.push(Span::styled("│", border_style));
+            spans.push(Span::styled("│", bs));
         }
 
         lines.push(Line::from(spans));
 
-        // Separator after header row (row 0)
-        if row_idx == 0 {
-            render_table_separator(&widths, col_count, border_style, lines);
+        // Row separator: ├─┼─┤ (after every row except the last)
+        if row_idx + 1 < rows.len() {
+            push_horizontal_border(lines, &widths, col_count, bs, "├", "┼", "┤");
         }
     }
+
+    // Bottom border: └─┴─┘
+    push_horizontal_border(lines, &widths, col_count, bs, "└", "┴", "┘");
 }
 
-/// Compute column widths from cell text lengths.
+/// Compute column widths from cell text character counts.
 fn compute_column_widths(rows: &[Vec<Vec<Span<'static>>>], col_count: usize) -> Vec<usize> {
     let mut widths = vec![0_usize; col_count];
     for row in rows {
         for (i, cell) in row.iter().enumerate() {
-            let len: usize = cell.iter().map(|s| s.content.len()).sum();
+            let len: usize = cell.iter().map(|s| s.content.width()).sum();
             if len > widths[i] {
                 widths[i] = len;
             }
@@ -528,28 +533,60 @@ fn compute_column_widths(rows: &[Vec<Vec<Span<'static>>>], col_count: usize) -> 
     widths
 }
 
-/// Render the separator line between header and body rows.
-fn render_table_separator(
+/// Push a horizontal border line: `left ─── mid ─── right`
+fn push_horizontal_border(
+    lines: &mut Vec<Line<'static>>,
     widths: &[usize],
     col_count: usize,
-    border_style: Style,
-    lines: &mut Vec<Line<'static>>,
+    style: Style,
+    left: &str,
+    mid: &str,
+    right: &str,
 ) {
-    let mut sep_spans: Vec<Span<'static>> = Vec::new();
-    sep_spans.push(Span::styled("├", border_style));
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    spans.push(Span::styled(left.to_owned(), style));
     for (i, &w) in widths.iter().enumerate() {
-        sep_spans.push(Span::styled("─".repeat(w + 2), border_style));
+        spans.push(Span::styled("─".repeat(w + 2), style));
         if i + 1 < col_count {
-            sep_spans.push(Span::styled("┼", border_style));
+            spans.push(Span::styled(mid.to_owned(), style));
         }
     }
-    sep_spans.push(Span::styled("┤", border_style));
-    lines.push(Line::from(sep_spans));
+    spans.push(Span::styled(right.to_owned(), style));
+    lines.push(Line::from(spans));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn table_has_full_borders() {
+        let md = "| A | B |\n|---|---|\n| 1 | 2 |";
+        let lines = markdown_to_lines(md);
+        let all: String = lines
+            .iter()
+            .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+            .collect();
+        assert!(all.contains('┌'), "should have top-left corner");
+        assert!(all.contains('┐'), "should have top-right corner");
+        assert!(all.contains('└'), "should have bottom-left corner");
+        assert!(all.contains('┘'), "should have bottom-right corner");
+        assert!(all.contains('┬'), "should have top T-junction");
+        assert!(all.contains('┴'), "should have bottom T-junction");
+        assert!(all.contains('├'), "should have left T-junction");
+        assert!(all.contains('┤'), "should have right T-junction");
+        assert!(all.contains('┼'), "should have cross junction");
+    }
+
+    #[test]
+    fn table_no_phantom_column() {
+        let md = "| A | B |\n|---|---|\n| 1 | 2 |";
+        let lines = markdown_to_lines(md);
+        // The top border should have exactly 2 columns: ┌─┬─┐ (one ┬)
+        let top_line: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+        let t_count = top_line.matches('┬').count();
+        assert_eq!(t_count, 1, "2-column table should have 1 ┬, got {t_count}");
+    }
 
     #[test]
     fn heading_no_hashes() {

@@ -37,6 +37,9 @@ ansi-to-tui = "8"
 htmd = "0.5"
 url = "2"
 
+# Unicode
+unicode-width = "0.2"
+
 # Utils
 thiserror = "2"
 dirs = "6"
