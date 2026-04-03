@@ -103,10 +103,12 @@ struct MarkdownRenderer<'hl> {
     current_row: Vec<Vec<Span<'static>>>,
     current_cell: Vec<Span<'static>>,
     table_row_kind: TableRowKind,
+    /// Available terminal width for table column sizing.
+    max_width: usize,
 }
 
 impl MarkdownRenderer<'_> {
-    fn new() -> Self {
+    fn new(max_width: usize) -> Self {
         Self {
             lines: Vec::new(),
             current_spans: Vec::new(),
@@ -122,6 +124,7 @@ impl MarkdownRenderer<'_> {
             current_row: Vec::new(),
             current_cell: Vec::new(),
             table_row_kind: TableRowKind::Body,
+            max_width,
         }
     }
 
@@ -273,7 +276,7 @@ impl MarkdownRenderer<'_> {
                 }
             }
             TagEnd::Table => {
-                render_table(&self.table_rows, &mut self.lines);
+                render_table(&self.table_rows, &mut self.lines, self.max_width);
                 self.table_rows.clear();
                 self.table = TableState::Outside;
                 self.pending_separator = PendingSeparator::BlankLine;
@@ -437,7 +440,10 @@ fn heading_level_to_u8(level: pulldown_cmark::HeadingLevel) -> u8 {
 }
 
 /// Convert markdown text to styled ratatui lines.
-pub fn markdown_to_lines(text: &str) -> Vec<Line<'static>> {
+///
+/// `max_width` is the available terminal width in columns. Tables wider than this
+/// will have their columns shrunk and cell content word-wrapped.
+pub fn markdown_to_lines(text: &str, max_width: usize) -> Vec<Line<'static>> {
     let mut opts = Options::empty();
     opts.insert(Options::ENABLE_STRIKETHROUGH);
     opts.insert(Options::ENABLE_TABLES);
@@ -446,7 +452,7 @@ pub fn markdown_to_lines(text: &str) -> Vec<Line<'static>> {
     let parser = Parser::new_ext(text, opts);
     let events: Vec<Event<'_>> = parser.collect();
 
-    let mut renderer = MarkdownRenderer::new();
+    let mut renderer = MarkdownRenderer::new(max_width);
 
     for event in events {
         match event {
@@ -465,8 +471,15 @@ pub fn markdown_to_lines(text: &str) -> Vec<Line<'static>> {
     renderer.finish()
 }
 
-/// Render a table with full box-drawing borders and row separators.
-fn render_table(rows: &[Vec<Vec<Span<'static>>>], lines: &mut Vec<Line<'static>>) {
+/// Render a table with full box-drawing borders, row separators, and cell word-wrap.
+///
+/// When the table's natural width exceeds `max_width`, columns are shrunk
+/// proportionally and cell content wraps into multiple visual lines per row.
+fn render_table(
+    rows: &[Vec<Vec<Span<'static>>>],
+    lines: &mut Vec<Line<'static>>,
+    max_width: usize,
+) {
     if rows.is_empty() {
         return;
     }
@@ -476,38 +489,52 @@ fn render_table(rows: &[Vec<Vec<Span<'static>>>], lines: &mut Vec<Line<'static>>
         return;
     }
 
-    let widths = compute_column_widths(rows, col_count);
+    let natural_widths = compute_natural_widths(rows, col_count);
+    let widths = cap_widths(&natural_widths, col_count, max_width);
     let bs = Style::default().fg(Color::DarkGray);
 
     // Top border: ┌─┬─┐
     push_horizontal_border(lines, &widths, col_count, bs, "┌", "┬", "┐");
 
     for (row_idx, row) in rows.iter().enumerate() {
-        // Data row: │ cell │ cell │
-        let mut spans: Vec<Span<'static>> = Vec::new();
-        spans.push(Span::styled("│", bs));
+        // Word-wrap each cell into multiple visual lines.
+        let wrapped: Vec<Vec<Vec<Span<'static>>>> = row
+            .iter()
+            .enumerate()
+            .map(|(ci, cell)| {
+                let w = widths.get(ci).copied().unwrap_or(0);
+                wrap_cell(cell, w)
+            })
+            .collect();
 
-        for (col_idx, cell) in row.iter().enumerate() {
-            let w = widths.get(col_idx).copied().unwrap_or(0);
-            let text_len: usize = cell.iter().map(|s| s.content.width()).sum();
-            let padding = w.saturating_sub(text_len);
+        // Pad missing columns.
+        let max_lines = wrapped.iter().map(Vec::len).max().unwrap_or(1).max(1);
 
-            spans.push(Span::raw(" "));
-            for s in cell {
-                spans.push(s.clone());
+        for line_idx in 0..max_lines {
+            let mut spans: Vec<Span<'static>> = Vec::new();
+            spans.push(Span::styled("│", bs));
+
+            for col_idx in 0..col_count {
+                let w = widths.get(col_idx).copied().unwrap_or(0);
+                let cell_lines = wrapped.get(col_idx);
+                let cell_line = cell_lines.and_then(|cl| cl.get(line_idx));
+
+                spans.push(Span::raw(" "));
+                if let Some(cell_spans) = cell_line {
+                    let text_w: usize = cell_spans.iter().map(|s| s.content.width()).sum();
+                    for s in cell_spans {
+                        spans.push(s.clone());
+                    }
+                    spans.push(Span::raw(" ".repeat(w.saturating_sub(text_w) + 1)));
+                } else {
+                    // Empty line for this cell in this visual row.
+                    spans.push(Span::raw(" ".repeat(w + 1)));
+                }
+                spans.push(Span::styled("│", bs));
             }
-            spans.push(Span::raw(" ".repeat(padding + 1)));
-            spans.push(Span::styled("│", bs));
-        }
 
-        // Fill missing columns.
-        for col_idx in row.len()..col_count {
-            let w = widths.get(col_idx).copied().unwrap_or(0);
-            spans.push(Span::raw(" ".repeat(w + 2)));
-            spans.push(Span::styled("│", bs));
+            lines.push(Line::from(spans));
         }
-
-        lines.push(Line::from(spans));
 
         // Row separator: ├─┼─┤ (after every row except the last)
         if row_idx + 1 < rows.len() {
@@ -519,8 +546,8 @@ fn render_table(rows: &[Vec<Vec<Span<'static>>>], lines: &mut Vec<Line<'static>>
     push_horizontal_border(lines, &widths, col_count, bs, "└", "┴", "┘");
 }
 
-/// Compute column widths from cell text character counts.
-fn compute_column_widths(rows: &[Vec<Vec<Span<'static>>>], col_count: usize) -> Vec<usize> {
+/// Compute natural (uncapped) column widths from cell content.
+fn compute_natural_widths(rows: &[Vec<Vec<Span<'static>>>], col_count: usize) -> Vec<usize> {
     let mut widths = vec![0_usize; col_count];
     for row in rows {
         for (i, cell) in row.iter().enumerate() {
@@ -531,6 +558,137 @@ fn compute_column_widths(rows: &[Vec<Vec<Span<'static>>>], col_count: usize) -> 
         }
     }
     widths
+}
+
+/// Cap column widths so the total table fits in `max_width`.
+///
+/// Each column costs `width + 3` chars (` ` + content + ` ` + `│`), plus one leading `│`.
+/// If the table fits, return natural widths unchanged. Otherwise, shrink the widest
+/// columns proportionally, with a minimum of 5 chars per column.
+fn cap_widths(natural: &[usize], col_count: usize, max_width: usize) -> Vec<usize> {
+    const MIN_COL: usize = 5;
+    // Total overhead: 1 leading │ + (3 per column: space, space, │)
+    let overhead = 1 + col_count * 3;
+    let available = max_width.saturating_sub(overhead);
+    let total_natural: usize = natural.iter().sum();
+
+    if total_natural <= available {
+        return natural.to_vec();
+    }
+
+    // Proportional shrink.
+    let mut widths: Vec<usize> = natural
+        .iter()
+        .map(|&w| {
+            if total_natural == 0 {
+                MIN_COL
+            } else {
+                (w * available / total_natural).max(MIN_COL)
+            }
+        })
+        .collect();
+
+    // Distribute remaining space (rounding errors).
+    let used: usize = widths.iter().sum();
+    if used < available {
+        let mut remaining = available - used;
+        for w in &mut widths {
+            if remaining == 0 {
+                break;
+            }
+            *w += 1;
+            remaining -= 1;
+        }
+    }
+
+    widths
+}
+
+/// Word-wrap a cell's spans into multiple visual lines, each fitting in `max_col_width`.
+///
+/// Returns a `Vec<Vec<Span>>` where each inner vec is one visual line.
+fn wrap_cell(cell: &[Span<'static>], max_col_width: usize) -> Vec<Vec<Span<'static>>> {
+    if max_col_width == 0 {
+        return vec![vec![]];
+    }
+
+    // Flatten all cell spans into one string + style runs.
+    let mut full_text = String::new();
+    let mut style_runs: Vec<(usize, usize, Style)> = Vec::new();
+    for s in cell {
+        let start = full_text.len();
+        full_text.push_str(&s.content);
+        style_runs.push((start, full_text.len(), s.style));
+    }
+
+    let total_width: usize = full_text.width();
+    if total_width <= max_col_width {
+        return vec![cell.to_vec()];
+    }
+
+    // Greedy word-wrap by characters.
+    let mut result: Vec<Vec<Span<'static>>> = Vec::new();
+    let mut line_start = 0;
+
+    while line_start < full_text.len() {
+        let remaining = &full_text[line_start..];
+        let mut line_width = 0;
+        let mut line_end = line_start;
+
+        for (i, ch) in remaining.char_indices() {
+            let cw = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+            if line_width + cw > max_col_width {
+                break;
+            }
+            line_width += cw;
+            line_end = line_start + i + ch.len_utf8();
+        }
+
+        // If we made no progress, force at least one char.
+        if line_end == line_start && line_start < full_text.len() {
+            let ch = remaining.chars().next().unwrap();
+            line_end = line_start + ch.len_utf8();
+        }
+
+        // Try to break at a word boundary (space) if possible.
+        if line_end < full_text.len() {
+            if let Some(space_pos) = full_text[line_start..line_end].rfind(' ') {
+                if space_pos > 0 {
+                    line_end = line_start + space_pos + 1; // include the space
+                }
+            }
+        }
+
+        // Build spans for this visual line by slicing style runs.
+        let mut line_spans: Vec<Span<'static>> = Vec::new();
+        for &(run_start, run_end, style) in &style_runs {
+            let seg_start = run_start.max(line_start);
+            let seg_end = run_end.min(line_end);
+            if seg_start < seg_end {
+                let text = &full_text[seg_start..seg_end];
+                // Trim trailing space on last segment of wrapped line.
+                let text = if line_end < full_text.len() {
+                    text.trim_end()
+                } else {
+                    text
+                };
+                if !text.is_empty() {
+                    line_spans.push(Span::styled(text.to_owned(), style));
+                }
+            }
+        }
+
+        if line_spans.is_empty() {
+            line_spans.push(Span::raw(""));
+        }
+        result.push(line_spans);
+        line_start = line_end;
+    }
+
+    if result.is_empty() {
+        result.push(vec![]);
+    }
+    result
 }
 
 /// Push a horizontal border line: `left ─── mid ─── right`
@@ -562,7 +720,7 @@ mod tests {
     #[test]
     fn table_has_full_borders() {
         let md = "| A | B |\n|---|---|\n| 1 | 2 |";
-        let lines = markdown_to_lines(md);
+        let lines = markdown_to_lines(md, 200);
         let all: String = lines
             .iter()
             .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
@@ -581,7 +739,7 @@ mod tests {
     #[test]
     fn table_no_phantom_column() {
         let md = "| A | B |\n|---|---|\n| 1 | 2 |";
-        let lines = markdown_to_lines(md);
+        let lines = markdown_to_lines(md, 200);
         // The top border should have exactly 2 columns: ┌─┬─┐ (one ┬)
         let top_line: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
         let t_count = top_line.matches('┬').count();
@@ -590,7 +748,7 @@ mod tests {
 
     #[test]
     fn heading_no_hashes() {
-        let lines = markdown_to_lines("# Hello World");
+        let lines = markdown_to_lines("# Hello World", 200);
         assert!(!lines.is_empty());
         let text: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(!text.contains('#'), "heading should not contain '#' chars");
@@ -599,7 +757,7 @@ mod tests {
 
     #[test]
     fn code_block_no_backticks() {
-        let lines = markdown_to_lines("```rust\nlet x = 1;\n```");
+        let lines = markdown_to_lines("```rust\nlet x = 1;\n```", 200);
         for line in &lines {
             let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
             assert!(
@@ -611,7 +769,7 @@ mod tests {
 
     #[test]
     fn code_block_has_bg() {
-        let lines = markdown_to_lines("```\nhello\n```");
+        let lines = markdown_to_lines("```\nhello\n```", 200);
         let code_line = &lines[0];
         let has_bg = code_line.spans.iter().any(|s| s.style.bg == Some(CODE_BG));
         assert!(has_bg, "code block should have background color");
@@ -620,7 +778,7 @@ mod tests {
     #[test]
     fn table_renders() {
         let md = "| A | B |\n|---|---|\n| 1 | 2 |";
-        let lines = markdown_to_lines(md);
+        let lines = markdown_to_lines(md, 200);
         assert!(
             lines.len() >= 3,
             "table should produce at least 3 lines (header + sep + row)"
@@ -637,7 +795,7 @@ mod tests {
 
     #[test]
     fn bold_has_modifier() {
-        let lines = markdown_to_lines("hello **world**");
+        let lines = markdown_to_lines("hello **world**", 200);
         let bold_span = lines[0]
             .spans
             .iter()
@@ -654,7 +812,7 @@ mod tests {
 
     #[test]
     fn horizontal_rule() {
-        let lines = markdown_to_lines("above\n\n---\n\nbelow");
+        let lines = markdown_to_lines("above\n\n---\n\nbelow", 200);
         let has_rule = lines
             .iter()
             .any(|l| l.spans.iter().any(|s| s.content.contains('─')));
@@ -666,14 +824,14 @@ mod tests {
 
     #[test]
     fn blockquote_prefix() {
-        let lines = markdown_to_lines("> quoted text");
+        let lines = markdown_to_lines("> quoted text", 200);
         let all_text: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(all_text.contains('│'), "blockquote should have │ prefix");
     }
 
     #[test]
     fn unordered_list() {
-        let lines = markdown_to_lines("- item one\n- item two");
+        let lines = markdown_to_lines("- item one\n- item two", 200);
         assert!(lines.len() >= 2);
         let text: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains('•'), "unordered list should use bullet char");
@@ -681,7 +839,7 @@ mod tests {
 
     #[test]
     fn inline_code_styled() {
-        let lines = markdown_to_lines("use `foo` here");
+        let lines = markdown_to_lines("use `foo` here", 200);
         let code_span = lines[0].spans.iter().find(|s| s.content.as_ref() == "foo");
         assert!(code_span.is_some());
         assert_eq!(code_span.unwrap().style.bg, Some(CODE_BG));
@@ -689,7 +847,7 @@ mod tests {
 
     #[test]
     fn task_list() {
-        let lines = markdown_to_lines("- [ ] todo\n- [x] done");
+        let lines = markdown_to_lines("- [ ] todo\n- [x] done", 200);
         let all: String = lines
             .iter()
             .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
@@ -700,14 +858,14 @@ mod tests {
 
     #[test]
     fn link_shows_url() {
-        let lines = markdown_to_lines("[click](https://example.com)");
+        let lines = markdown_to_lines("[click](https://example.com)", 200);
         let all: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(all.contains("https://example.com"));
     }
 
     #[test]
     fn syntax_highlighted_code_has_colored_spans() {
-        let lines = markdown_to_lines("```rust\nlet x = 42;\n```");
+        let lines = markdown_to_lines("```rust\nlet x = 42;\n```", 200);
         assert!(!lines.is_empty());
         // Highlighted code should have more than one span per line (keywords get distinct colors).
         let code_line = &lines[0];
@@ -724,9 +882,23 @@ mod tests {
 
     #[test]
     fn unknown_lang_falls_back_to_plain() {
-        let lines = markdown_to_lines("```xyznotreal\nhello world\n```");
+        let lines = markdown_to_lines("```xyznotreal\nhello world\n```", 200);
         assert!(!lines.is_empty());
         let has_bg = lines[0].spans.iter().any(|s| s.style.bg == Some(CODE_BG));
         assert!(has_bg, "unknown lang should fall back to plain code style");
+    }
+
+    #[test]
+    fn table_wraps_in_narrow_terminal() {
+        let md = "| Name | Description |\n|---|---|\n| Foo | A very long description that should wrap |";
+        // Use a narrow width that forces wrapping.
+        let lines = markdown_to_lines(md, 40);
+        // Should have more lines than a 3-row table (top border + header + sep + data + bottom = 5)
+        // because the data row's "Description" cell should wrap.
+        assert!(
+            lines.len() > 5,
+            "narrow table should word-wrap cells, got {} lines",
+            lines.len()
+        );
     }
 }

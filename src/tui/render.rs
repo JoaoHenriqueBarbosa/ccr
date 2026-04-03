@@ -160,8 +160,12 @@ impl ViewportSlice {
 // ─── Block builders ─────────────────────────────────────────────
 
 /// Render markdown text with 2-space indent, returning owned lines.
-fn markdown_to_lines(text: &str) -> Vec<Line<'static>> {
-    super::markdown::markdown_to_lines(text)
+///
+/// `width` is the available terminal width (used for table column capping).
+fn markdown_to_lines(text: &str, width: usize) -> Vec<Line<'static>> {
+    // Subtract 2 for the indent we prepend.
+    let inner_width = width.saturating_sub(2);
+    super::markdown::markdown_to_lines(text, inner_width)
         .into_iter()
         .map(|line| {
             let mut spans: Vec<Span<'static>> = vec![Span::raw("  ")];
@@ -238,10 +242,11 @@ fn build_tool_result_lines(
 fn build_assistant_block(
     msg: &ConversationMessage,
     cache: &mut std::collections::HashMap<MessageUuid, Vec<Line<'static>>>,
+    width: usize,
 ) -> MessageBlock {
     let lines = cache
         .entry(msg.uuid.clone())
-        .or_insert_with(|| build_assistant_lines(msg));
+        .or_insert_with(|| build_assistant_lines(msg, width));
     MessageBlock {
         lines: lines.clone(),
         bg: None,
@@ -250,12 +255,12 @@ fn build_assistant_block(
 }
 
 /// Build rendered lines for an assistant message (uncached).
-fn build_assistant_lines(msg: &ConversationMessage) -> Vec<Line<'static>> {
+fn build_assistant_lines(msg: &ConversationMessage, width: usize) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
     for block in &msg.content {
         match block {
             ContentBlock::Text { text, .. } => {
-                lines.extend(markdown_to_lines(text.as_ref()));
+                lines.extend(markdown_to_lines(text.as_ref(), width));
             }
             ContentBlock::ToolUse { name, input, .. } => {
                 let input_summary = input.to_string();
@@ -277,18 +282,25 @@ fn build_assistant_lines(msg: &ConversationMessage) -> Vec<Line<'static>> {
 }
 
 /// Convert all messages + streaming state into a list of renderable blocks.
-fn build_message_blocks(app: &mut App) -> Vec<MessageBlock> {
+fn build_message_blocks(app: &mut App, width: u16) -> Vec<MessageBlock> {
+    // Invalidate markdown cache on terminal resize.
+    if app.cached_width != width {
+        app.markdown_cache.clear();
+        app.cached_width = width;
+    }
+
+    let w = usize::from(width);
     let mut blocks: Vec<MessageBlock> = Vec::with_capacity(app.messages.len() + 1);
 
     for msg in &app.messages {
         blocks.push(match msg.role {
             Role::User => build_user_block(msg),
-            Role::Assistant => build_assistant_block(msg, &mut app.markdown_cache),
+            Role::Assistant => build_assistant_block(msg, &mut app.markdown_cache, w),
         });
     }
 
     if app.is_streaming() && !app.streaming.is_empty() {
-        let mut lines = markdown_to_lines(app.streaming.as_ref());
+        let mut lines = markdown_to_lines(app.streaming.as_ref(), w);
         lines.push(Line::from(Span::styled(
             "  ▊",
             Style::default().fg(Color::White),
@@ -338,7 +350,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
 fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
     let prepared = PreparedBlocks {
-        blocks: build_message_blocks(app),
+        blocks: build_message_blocks(app, area.width),
     };
     let measured = prepared.measure(area.width);
     app.total_content_height = measured.total_height;

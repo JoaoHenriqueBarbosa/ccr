@@ -101,7 +101,10 @@ pub struct App {
     pub display_model: ShortModelName,
     /// Cache of rendered markdown lines per message UUID.
     /// Only populated for completed messages — streaming content is re-rendered each frame.
+    /// Invalidated when terminal width changes.
     pub markdown_cache: HashMap<MessageUuid, Vec<Line<'static>>>,
+    /// Terminal width when the cache was last populated.
+    pub cached_width: u16,
     git_branch_updated: std::time::Instant,
 }
 
@@ -130,6 +133,7 @@ impl App {
             display_path,
             display_model,
             markdown_cache: HashMap::new(),
+            cached_width: 0,
             git_branch_updated: std::time::Instant::now(),
         }
     }
