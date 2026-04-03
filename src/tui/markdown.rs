@@ -1,16 +1,29 @@
 //! Custom Markdown → ratatui `Text` renderer.
 //!
-//! Covers: headings (bold, no `#`), code blocks (background, no fences),
+//! Covers: headings (bold, no `#`), code blocks (syntax highlighting + background),
 //! inline code, bold, italic, strikethrough, lists, blockquotes, tables,
 //! horizontal rules, links, task lists.
 //!
 //! Uses a `MarkdownRenderer` struct to keep state, avoiding a single 300-line function.
+//! Syntax highlighting powered by `syntect` + `ansi_to_tui`.
 
-use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+use std::sync::LazyLock;
+
+use ansi_to_tui::IntoText;
+use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
 };
+use syntect::{
+    easy::HighlightLines,
+    highlighting::ThemeSet,
+    parsing::SyntaxSet,
+    util::{LinesWithEndings, as_24_bit_terminal_escaped},
+};
+
+static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(SyntaxSet::load_defaults_newlines);
+static THEME_SET: LazyLock<ThemeSet> = LazyLock::new(ThemeSet::load_defaults);
 
 /// Heading style by depth (1-indexed). All bold; H1 gets underline.
 fn heading_style(level: u8) -> Style {
@@ -74,11 +87,12 @@ enum PendingSeparator {
 }
 
 /// Stateful markdown renderer that builds ratatui `Line`s from pulldown-cmark events.
-struct MarkdownRenderer {
+struct MarkdownRenderer<'hl> {
     lines: Vec<Line<'static>>,
     current_spans: Vec<Span<'static>>,
     style_stack: Vec<Style>,
     code_block: CodeBlockState,
+    code_highlighter: Option<HighlightLines<'hl>>,
     list_stack: Vec<Option<u64>>,
     blockquote_depth: usize,
     link_url: Option<String>,
@@ -90,13 +104,14 @@ struct MarkdownRenderer {
     table_row_kind: TableRowKind,
 }
 
-impl MarkdownRenderer {
+impl MarkdownRenderer<'_> {
     fn new() -> Self {
         Self {
             lines: Vec::new(),
             current_spans: Vec::new(),
             style_stack: Vec::new(),
             code_block: CodeBlockState::Outside,
+            code_highlighter: None,
             list_stack: Vec::new(),
             blockquote_depth: 0,
             link_url: None,
@@ -142,9 +157,15 @@ impl MarkdownRenderer {
             Tag::Paragraph => {
                 self.maybe_blank_line();
             }
-            Tag::CodeBlock(_) => {
+            Tag::CodeBlock(kind) => {
                 self.maybe_blank_line();
                 self.code_block = CodeBlockState::Inside;
+                if let CodeBlockKind::Fenced(ref lang) = kind {
+                    if let Some(syntax) = SYNTAX_SET.find_syntax_by_token(lang.as_ref()) {
+                        let theme = &THEME_SET.themes["base16-ocean.dark"];
+                        self.code_highlighter = Some(HighlightLines::new(syntax, theme));
+                    }
+                }
             }
             Tag::BlockQuote(_) => {
                 self.maybe_blank_line();
@@ -223,6 +244,7 @@ impl MarkdownRenderer {
             }
             TagEnd::CodeBlock => {
                 self.code_block = CodeBlockState::Outside;
+                self.code_highlighter = None;
                 self.pending_separator = PendingSeparator::BlankLine;
             }
             TagEnd::BlockQuote(_) => {
@@ -295,14 +317,50 @@ impl MarkdownRenderer {
     }
 
     fn handle_code_block_text(&mut self, text: &str) {
-        for line_text in text.lines() {
-            let mut spans: Vec<Span<'static>> = Vec::new();
-            for _ in 0..self.blockquote_depth {
-                spans.push(Span::styled("│ ", BLOCKQUOTE_STYLE));
+        if self.code_highlighter.is_some() {
+            self.handle_highlighted_code(text);
+        } else {
+            for line_text in text.lines() {
+                self.push_plain_code_line(line_text);
             }
-            spans.push(Span::styled(format!(" {line_text} "), CODE_STYLE));
-            self.lines.push(Line::from(spans));
         }
+    }
+
+    /// Render syntax-highlighted code using `syntect` + `ansi_to_tui`.
+    fn handle_highlighted_code(&mut self, text: &str) {
+        let highlighter = self.code_highlighter.as_mut().unwrap();
+        let depth = self.blockquote_depth;
+
+        for line_text in LinesWithEndings::from(text) {
+            let Ok(regions) = highlighter.highlight_line(line_text, &SYNTAX_SET) else {
+                push_plain_code_line_to(&mut self.lines, depth, line_text.trim_end_matches('\n'));
+                continue;
+            };
+            let escaped = as_24_bit_terminal_escaped(&regions, false);
+            let Ok(ansi_text) = escaped.into_text() else {
+                push_plain_code_line_to(&mut self.lines, depth, line_text.trim_end_matches('\n'));
+                continue;
+            };
+            for line in ansi_text.lines {
+                let mut spans: Vec<Span<'static>> = Vec::new();
+                for _ in 0..depth {
+                    spans.push(Span::styled("│ ", BLOCKQUOTE_STYLE));
+                }
+                spans.push(Span::styled(" ", Style::default().bg(CODE_BG)));
+                for s in line.spans {
+                    spans.push(Span::styled(
+                        s.content.to_string(),
+                        s.style.bg(CODE_BG),
+                    ));
+                }
+                spans.push(Span::styled(" ", Style::default().bg(CODE_BG)));
+                self.lines.push(Line::from(spans));
+            }
+        }
+    }
+
+    fn push_plain_code_line(&mut self, line_text: &str) {
+        push_plain_code_line_to(&mut self.lines, self.blockquote_depth, line_text);
     }
 
     fn handle_code_inline(&mut self, code: &str) {
@@ -357,6 +415,16 @@ impl MarkdownRenderer {
         }
         self.lines
     }
+}
+
+/// Push a single plain (unhighlighted) code line with background and blockquote prefixes.
+fn push_plain_code_line_to(lines: &mut Vec<Line<'static>>, depth: usize, line_text: &str) {
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    for _ in 0..depth {
+        spans.push(Span::styled("│ ", BLOCKQUOTE_STYLE));
+    }
+    spans.push(Span::styled(format!(" {line_text} "), CODE_STYLE));
+    lines.push(Line::from(spans));
 }
 
 fn heading_level_to_u8(level: pulldown_cmark::HeadingLevel) -> u8 {
@@ -598,5 +666,30 @@ mod tests {
         let lines = markdown_to_lines("[click](https://example.com)");
         let all: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(all.contains("https://example.com"));
+    }
+
+    #[test]
+    fn syntax_highlighted_code_has_colored_spans() {
+        let lines = markdown_to_lines("```rust\nlet x = 42;\n```");
+        assert!(!lines.is_empty());
+        // Highlighted code should have more than one span per line (keywords get distinct colors).
+        let code_line = &lines[0];
+        let colored_spans = code_line
+            .spans
+            .iter()
+            .filter(|s| s.style.fg.is_some() || s.style.bg.is_some())
+            .count();
+        assert!(
+            colored_spans >= 2,
+            "highlighted code should have multiple colored spans, got {colored_spans}"
+        );
+    }
+
+    #[test]
+    fn unknown_lang_falls_back_to_plain() {
+        let lines = markdown_to_lines("```xyznotreal\nhello world\n```");
+        assert!(!lines.is_empty());
+        let has_bg = lines[0].spans.iter().any(|s| s.style.bg == Some(CODE_BG));
+        assert!(has_bg, "unknown lang should fall back to plain code style");
     }
 }
