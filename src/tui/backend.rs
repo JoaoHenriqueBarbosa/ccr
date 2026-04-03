@@ -8,9 +8,9 @@ use tokio::sync::mpsc;
 use crate::api::AnthropicClient;
 use crate::tools::execute_tool;
 use crate::types::{
-    ApiMessage, AppError, ContentBlock, ConversationMessage, Delta, MessageOrigin,
-    MessageUuid, Role, StopReason, StreamEvent, StreamingBuffer, SystemPrompt,
-    ToolDefinition, ToolName, ToolUseId, Usage, WorkingDir,
+    ApiMessage, AppError, ContentBlock, ConversationMessage, Delta, MessageOrigin, MessageUuid,
+    Role, StopReason, StreamEvent, StreamingBuffer, SystemPrompt, ToolDefinition, ToolName,
+    ToolUseId, Usage, WorkingDir,
 };
 
 use super::state::BackendEvent;
@@ -25,8 +25,14 @@ async fn accumulate_stream(
 ) -> Option<(Vec<ContentBlock>, Option<StopReason>, Option<Usage>)> {
     enum BlockAccum {
         Idle,
-        Text { buf: StreamingBuffer },
-        Tool { id: ToolUseId, name: ToolName, json_buf: StreamingBuffer },
+        Text {
+            buf: StreamingBuffer,
+        },
+        Tool {
+            id: ToolUseId,
+            name: ToolName,
+            json_buf: StreamingBuffer,
+        },
     }
 
     let mut content_blocks: Vec<ContentBlock> = Vec::new();
@@ -38,7 +44,9 @@ async fn accumulate_stream(
         match &event {
             StreamEvent::ContentBlockStart { content_block, .. } => {
                 accum = match content_block {
-                    ContentBlock::Text { .. } => BlockAccum::Text { buf: StreamingBuffer::default() },
+                    ContentBlock::Text { .. } => BlockAccum::Text {
+                        buf: StreamingBuffer::default(),
+                    },
                     ContentBlock::ToolUse { id, name, .. } => BlockAccum::Tool {
                         id: id.clone(),
                         name: name.clone(),
@@ -73,7 +81,10 @@ async fn accumulate_stream(
                         content_blocks.push(ContentBlock::ToolUse { id, name, input });
                     }
                     BlockAccum::Text { buf } if !buf.is_empty() => {
-                        content_blocks.push(ContentBlock::Text { text: buf.into_string().into(), citations: None });
+                        content_blocks.push(ContentBlock::Text {
+                            text: buf.into_string().into(),
+                            citations: None,
+                        });
                     }
                     _ => {}
                 }
@@ -154,7 +165,10 @@ pub async fn backend_turn(
 
         messages.push(assistant_msg.to_api_message());
 
-        if tx.send(BackendEvent::AssistantMessage(assistant_msg)).is_err() {
+        if tx
+            .send(BackendEvent::AssistantMessage(assistant_msg))
+            .is_err()
+        {
             return;
         }
 
@@ -164,7 +178,9 @@ pub async fn backend_turn(
         }
 
         for (tool_id, tool_name, tool_input) in &tool_uses {
-            let _ = tx.send(BackendEvent::ToolStart { name: tool_name.clone() });
+            let _ = tx.send(BackendEvent::ToolStart {
+                name: tool_name.clone(),
+            });
 
             let (result, is_error) = execute_tool(tool_name, tool_input, &cwd).await;
 

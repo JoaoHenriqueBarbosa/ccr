@@ -10,9 +10,8 @@ use serde_json::json;
 use tokio::sync::mpsc;
 
 use crate::types::{
-    AccountUuid, ApiKey, ApiMessage, ApiUrl, AppError, DeviceId, DeviceIdentity,
-    MaxTokens, ModelId, RequestId, ResponseBody, SessionId, StreamEvent, SystemPrompt,
-    ToolDefinition,
+    AccountUuid, ApiKey, ApiMessage, ApiUrl, AppError, DeviceId, DeviceIdentity, MaxTokens,
+    ModelId, RequestId, ResponseBody, SessionId, StreamEvent, SystemPrompt, ToolDefinition,
 };
 
 const API_VERSION: &str = "2023-06-01";
@@ -33,10 +32,18 @@ fn read_identity() -> DeviceIdentity {
     };
 
     for entry in entries.flatten() {
-        let Ok(content) = std::fs::read_to_string(entry.path()) else { continue };
-        let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) else { continue };
-        let Some(data_str) = parsed.get("data").and_then(|d| d.as_str()) else { continue };
-        let Ok(data) = serde_json::from_str::<serde_json::Value>(data_str) else { continue };
+        let Ok(content) = std::fs::read_to_string(entry.path()) else {
+            continue;
+        };
+        let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) else {
+            continue;
+        };
+        let Some(data_str) = parsed.get("data").and_then(|d| d.as_str()) else {
+            continue;
+        };
+        let Ok(data) = serde_json::from_str::<serde_json::Value>(data_str) else {
+            continue;
+        };
 
         let device_id = DeviceId::new(
             data.pointer("/evaluated_keys/userID")
@@ -51,7 +58,10 @@ fn read_identity() -> DeviceIdentity {
                 .to_string(),
         );
         if !device_id.is_empty() {
-            return DeviceIdentity { device_id, account_uuid };
+            return DeviceIdentity {
+                device_id,
+                account_uuid,
+            };
         }
     }
 
@@ -91,7 +101,9 @@ impl AnthropicClient {
         let identity = read_identity();
 
         let body = self.build_request_body(messages, system, tools, &session_id, &identity)?;
-        let response = self.send_request(&body, &session_id, &request_id, is_oauth).await?;
+        let response = self
+            .send_request(&body, &session_id, &request_id, is_oauth)
+            .await?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -133,8 +145,8 @@ impl AnthropicClient {
         });
 
         if !tools.is_empty() {
-            body["tools"] = serde_json::to_value(tools)
-                .map_err(|source| AppError::Json { source })?;
+            body["tools"] =
+                serde_json::to_value(tools).map_err(|source| AppError::Json { source })?;
         }
 
         Ok(body)
@@ -158,7 +170,10 @@ impl AnthropicClient {
             .header("accept", "application/json")
             .header("anthropic-beta", &betas)
             .header("anthropic-dangerous-direct-browser-access", "true")
-            .header("user-agent", format!("claude-cli/{CLI_VERSION} (external, cli)"))
+            .header(
+                "user-agent",
+                format!("claude-cli/{CLI_VERSION} (external, cli)"),
+            )
             .header("x-app", "cli")
             .header("x-claude-code-session-id", session_id.as_ref())
             .header("x-client-request-id", request_id.as_ref())
@@ -283,7 +298,9 @@ fn parse_sse_event(text: &str) -> SseParseResult {
 
     match serde_json::from_str::<StreamEvent>(data) {
         Ok(event) => SseParseResult::Event(event),
-        Err(_) => SseParseResult::Unknown { event_type: event_type.to_string() },
+        Err(_) => SseParseResult::Unknown {
+            event_type: event_type.to_string(),
+        },
     }
 }
 
@@ -302,7 +319,10 @@ mod tests {
     fn parse_message_stop() {
         let raw = "event: message_stop\ndata: {\"type\": \"message_stop\"}";
         let result = parse_sse_event(raw);
-        assert!(matches!(result, SseParseResult::Event(StreamEvent::MessageStop)));
+        assert!(matches!(
+            result,
+            SseParseResult::Event(StreamEvent::MessageStop)
+        ));
     }
 
     #[test]
@@ -310,14 +330,20 @@ mod tests {
         let raw = r#"event: content_block_delta
 data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Hello"}}"#;
         let result = parse_sse_event(raw);
-        assert!(matches!(result, SseParseResult::Event(StreamEvent::ContentBlockDelta { .. })));
+        assert!(matches!(
+            result,
+            SseParseResult::Event(StreamEvent::ContentBlockDelta { .. })
+        ));
     }
 
     #[test]
     fn parse_empty_returns_skip() {
         assert!(matches!(parse_sse_event(""), SseParseResult::Skip));
         assert!(matches!(parse_sse_event(": comment"), SseParseResult::Skip));
-        assert!(matches!(parse_sse_event("event: ping"), SseParseResult::Skip)); // no data line
+        assert!(matches!(
+            parse_sse_event("event: ping"),
+            SseParseResult::Skip
+        )); // no data line
     }
 
     #[test]
@@ -339,7 +365,10 @@ data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta"
         let raw = r#"event: error
 data: {"type": "error", "error": {"type": "rate_limit_error", "message": "Rate limited"}}"#;
         let result = parse_sse_event(raw);
-        assert!(matches!(result, SseParseResult::Event(StreamEvent::Error { .. })));
+        assert!(matches!(
+            result,
+            SseParseResult::Event(StreamEvent::Error { .. })
+        ));
     }
 
     #[test]

@@ -6,9 +6,7 @@
 //!
 //! Uses a `MarkdownRenderer` struct to keep state, avoiding a single 300-line function.
 
-use pulldown_cmark::{
-    Event, Options, Parser, Tag, TagEnd,
-};
+use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
@@ -36,7 +34,9 @@ const CODE_BG: Color = Color::Rgb(40, 40, 40);
 const CODE_STYLE: Style = Style::new().fg(Color::White).bg(CODE_BG);
 const INLINE_CODE_STYLE: Style = Style::new().fg(Color::White).bg(CODE_BG);
 const BLOCKQUOTE_STYLE: Style = Style::new().fg(Color::Green);
-const LINK_STYLE: Style = Style::new().fg(Color::Blue).add_modifier(Modifier::UNDERLINED);
+const LINK_STYLE: Style = Style::new()
+    .fg(Color::Blue)
+    .add_modifier(Modifier::UNDERLINED);
 const RULE_STYLE: Style = Style::new().fg(Color::DarkGray);
 
 // ─── Bool replacements — two-variant enums ──────────────────────
@@ -183,7 +183,8 @@ impl MarkdownRenderer {
             }
             Tag::Strikethrough => {
                 let base = self.current_style();
-                self.style_stack.push(base.add_modifier(Modifier::CROSSED_OUT));
+                self.style_stack
+                    .push(base.add_modifier(Modifier::CROSSED_OUT));
             }
             Tag::Link { dest_url, .. } => {
                 self.link_url = Some(dest_url.to_string());
@@ -282,12 +283,14 @@ impl MarkdownRenderer {
             } else {
                 self.current_style()
             };
-            self.current_cell.push(Span::styled(text.to_string(), style));
+            self.current_cell
+                .push(Span::styled(text.to_string(), style));
         } else if self.code_block == CodeBlockState::Inside {
             self.handle_code_block_text(text);
         } else {
             let style = self.current_style();
-            self.current_spans.push(Span::styled(text.to_string(), style));
+            self.current_spans
+                .push(Span::styled(text.to_string(), style));
         }
     }
 
@@ -297,19 +300,18 @@ impl MarkdownRenderer {
             for _ in 0..self.blockquote_depth {
                 spans.push(Span::styled("│ ", BLOCKQUOTE_STYLE));
             }
-            spans.push(Span::styled(
-                format!(" {line_text} "),
-                CODE_STYLE,
-            ));
+            spans.push(Span::styled(format!(" {line_text} "), CODE_STYLE));
             self.lines.push(Line::from(spans));
         }
     }
 
     fn handle_code_inline(&mut self, code: &str) {
         if self.table == TableState::Inside {
-            self.current_cell.push(Span::styled(code.to_string(), INLINE_CODE_STYLE));
+            self.current_cell
+                .push(Span::styled(code.to_string(), INLINE_CODE_STYLE));
         } else {
-            self.current_spans.push(Span::styled(code.to_string(), INLINE_CODE_STYLE));
+            self.current_spans
+                .push(Span::styled(code.to_string(), INLINE_CODE_STYLE));
         }
     }
 
@@ -340,8 +342,13 @@ impl MarkdownRenderer {
 
     fn handle_task_list_marker(&mut self, checked: bool) {
         let marker = if checked { "☑ " } else { "☐ " };
-        let color = if checked { Color::Green } else { Color::DarkGray };
-        self.current_spans.push(Span::styled(marker, Style::default().fg(color)));
+        let color = if checked {
+            Color::Green
+        } else {
+            Color::DarkGray
+        };
+        self.current_spans
+            .push(Span::styled(marker, Style::default().fg(color)));
     }
 
     fn finish(mut self) -> Vec<Line<'static>> {
@@ -490,7 +497,10 @@ mod tests {
         let lines = markdown_to_lines("```rust\nlet x = 1;\n```");
         for line in &lines {
             let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-            assert!(!text.contains("```"), "code block should not contain backticks: {text}");
+            assert!(
+                !text.contains("```"),
+                "code block should not contain backticks: {text}"
+            );
         }
     }
 
@@ -506,28 +516,47 @@ mod tests {
     fn table_renders() {
         let md = "| A | B |\n|---|---|\n| 1 | 2 |";
         let lines = markdown_to_lines(md);
-        assert!(lines.len() >= 3, "table should produce at least 3 lines (header + sep + row)");
-        let all_text: String = lines.iter()
+        assert!(
+            lines.len() >= 3,
+            "table should produce at least 3 lines (header + sep + row)"
+        );
+        let all_text: String = lines
+            .iter()
             .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
             .collect();
-        assert!(all_text.contains('│'), "table should have box-drawing borders");
+        assert!(
+            all_text.contains('│'),
+            "table should have box-drawing borders"
+        );
     }
 
     #[test]
     fn bold_has_modifier() {
         let lines = markdown_to_lines("hello **world**");
-        let bold_span = lines[0].spans.iter().find(|s| s.content.as_ref() == "world");
+        let bold_span = lines[0]
+            .spans
+            .iter()
+            .find(|s| s.content.as_ref() == "world");
         assert!(bold_span.is_some());
-        assert!(bold_span.unwrap().style.add_modifier.contains(Modifier::BOLD));
+        assert!(
+            bold_span
+                .unwrap()
+                .style
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
     }
 
     #[test]
     fn horizontal_rule() {
         let lines = markdown_to_lines("above\n\n---\n\nbelow");
-        let has_rule = lines.iter().any(|l| {
-            l.spans.iter().any(|s| s.content.contains('─'))
-        });
-        assert!(has_rule, "should render horizontal rule with box-drawing chars");
+        let has_rule = lines
+            .iter()
+            .any(|l| l.spans.iter().any(|s| s.content.contains('─')));
+        assert!(
+            has_rule,
+            "should render horizontal rule with box-drawing chars"
+        );
     }
 
     #[test]
@@ -556,7 +585,8 @@ mod tests {
     #[test]
     fn task_list() {
         let lines = markdown_to_lines("- [ ] todo\n- [x] done");
-        let all: String = lines.iter()
+        let all: String = lines
+            .iter()
             .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
             .collect();
         assert!(all.contains('☐'), "unchecked task should show ☐");

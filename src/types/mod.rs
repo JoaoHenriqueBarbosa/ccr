@@ -42,22 +42,53 @@ macro_rules! impl_string_newtype {
 
 impl_string_newtype!(
     // newtypes
-    newtypes::StopReason, newtypes::ToolUseId, newtypes::ToolName,
-    newtypes::ModelId, newtypes::ShortModelName,
-    newtypes::ApiKey, newtypes::SessionId, newtypes::DeviceId, newtypes::AccountUuid,
-    newtypes::MessageUuid, newtypes::RequestId, newtypes::ApiUrl,
+    newtypes::StopReason,
+    newtypes::ToolUseId,
+    newtypes::ToolName,
+    newtypes::ModelId,
+    newtypes::ShortModelName,
+    newtypes::ApiKey,
+    newtypes::SessionId,
+    newtypes::DeviceId,
+    newtypes::AccountUuid,
+    newtypes::MessageUuid,
+    newtypes::RequestId,
+    newtypes::ApiUrl,
     newtypes::StopSequence,
     // api
-    api::ErrorType, api::ErrorMessage, api::ApiResponseId,
-    api::DeltaText, api::PartialJson, api::DeltaThinking, api::DeltaSignature,
-    api::TextContent, api::ThinkingContent, api::ThinkingSignature,
+    api::ErrorType,
+    api::ErrorMessage,
+    api::ApiResponseId,
+    api::DeltaText,
+    api::PartialJson,
+    api::DeltaThinking,
+    api::DeltaSignature,
+    api::TextContent,
+    api::ThinkingContent,
+    api::ThinkingSignature,
     // error
     error::ResponseBody,
     // tui
-    tui_types::ShortPath, tui_types::WorkingDir, tui_types::SystemPrompt,
+    tui_types::ShortPath,
+    tui_types::WorkingDir,
+    tui_types::SystemPrompt,
     tui_types::StreamingBuffer,
     // tools
-    tools::ToolDescription, tools::CommandDescription,
+    tools::ToolDescription,
+    tools::CommandDescription,
+    tools::CommandText,
+    tools::FilePath,
+    tools::FileContent,
+    tools::GlobPattern,
+    tools::SearchPattern,
+    tools::SearchPath,
+    tools::GlobFilter,
+    tools::OldString,
+    tools::NewString,
+    tools::PdfPages,
+    tools::RgFileType,
+    tools::FetchUrl,
+    tools::FetchPrompt,
 );
 
 // Re-export everything so `use crate::types::Foo` keeps working.
@@ -65,30 +96,27 @@ impl_string_newtype!(
 #[allow(unused_imports)]
 mod reexports {
     pub use super::api::{
-        ApiError, ApiResponse, ApiResponseId, ApiTokens, BlockIndex, ContentBlock,
-        Delta, DeltaSignature, DeltaText, DeltaThinking, ErrorMessage, ErrorType,
-        MessageDeltaBody, MessageDeltaUsage, PartialJson, RedactedData, ServerToolUsage,
-        StreamEvent, TextCitation, TextContent, ThinkingContent, ThinkingSignature,
-        Usage, WebSearchToolResultContent,
+        ApiError, ApiResponse, ApiResponseId, ApiTokens, BlockIndex, ContentBlock, Delta,
+        DeltaSignature, DeltaText, DeltaThinking, ErrorMessage, ErrorType, MessageDeltaBody,
+        MessageDeltaUsage, PartialJson, RedactedData, ServerToolUsage, StreamEvent, TextCitation,
+        TextContent, ThinkingContent, ThinkingSignature, Usage, WebSearchToolResultContent,
     };
     pub use super::error::{AppError, ResponseBody, Result};
     pub use super::message::{ApiMessage, ConversationMessage, MessageOrigin, Role};
     pub use super::newtypes::{
-        AccountUuid, ApiKey, ApiUrl, DeviceId, DeviceIdentity, MaxTokens, ModelId, MessageUuid,
+        AccountUuid, ApiKey, ApiUrl, DeviceId, DeviceIdentity, MaxTokens, MessageUuid, ModelId,
         RequestId, SessionId, ShortModelName, StopReason, StopSequence, ToolName, ToolUseId,
     };
     pub use super::tools::{
-        BashInput, BuiltinTool, CaseInsensitive, CommandDescription, CommandText,
-        ContextLines, EditInput, ExitCode, FetchPrompt, FetchTimeoutSecs, FetchUrl,
-        FileContent, FilePath,
-        GlobFilter, GlobInput, GlobPattern, GlobResultLimit, GlobResultOffset, GrepInput,
-        GrepOutputMode, HeadLimit, LargeOutputThreshold, LineLimit, LineOffset,
-        MaxHttpContentLength, MaxMarkdownLength, MaxOutputLen, MaxReadFileSize,
-        MaxUrlLength, MultilineMode, NewString, OldString, PdfPages, PreviewLen, ReadInput,
-        ReplaceAll, ResultOffset, RgFileType, SearchPath, SearchPattern, ShowLineNumbers,
-        FileEncoding, FileSizeBytes, LineEndings, MaxWriteFileSize, RunInBackground,
-        TimeoutMs, ToolDefinition, ToolDescription, ToolResultStatus, UserShell,
-        WebFetchInput, WriteInput,
+        BashInput, BuiltinTool, CaseSensitivity, CommandDescription, CommandText, ContextLines,
+        EditInput, ExecutionMode, ExitCode, FetchPrompt, FetchTimeoutSecs, FetchUrl, FileContent,
+        FileEncoding, FilePath, FileSizeBytes, GlobFilter, GlobInput, GlobPattern, GlobResultLimit,
+        GlobResultOffset, GrepInput, GrepOutputMode, HeadLimit, LargeOutputThreshold, LineEndings,
+        LineLimit, LineNumberDisplay, LineOffset, MaxHttpContentLength, MaxMarkdownLength,
+        MaxOutputLen, MaxReadFileSize, MaxUrlLength, MaxWriteFileSize, MultilineSearch, NewString,
+        OldString, PdfPages, PreviewLen, ReadInput, ReplaceMode, ResultOffset, RgFileType,
+        SearchPath, SearchPattern, TimeoutMs, ToolDefinition, ToolDescription, ToolResultStatus,
+        UserShell, WebFetchInput, WriteInput,
     };
     pub use super::tui_types::{
         CompletedTimer, IdleTimer, InputBuffer, ScrollOffset, ShortPath, StreamingBuffer,

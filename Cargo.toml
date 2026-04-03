@@ -30,7 +30,7 @@ crossterm = "0.28"
 pulldown-cmark = "0.13"
 
 # HTML → Markdown
-html2md = "0.2"
+htmd = "0.5"
 url = "2"
 
 # Utils

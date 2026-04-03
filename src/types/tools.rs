@@ -32,13 +32,18 @@ impl ToolResultStatus {
 }
 
 impl Serialize for ToolResultStatus {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
         serializer.serialize_bool(self.is_error())
     }
 }
 
 impl<'de> Deserialize<'de> for ToolResultStatus {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
         let b = bool::deserialize(deserializer)?;
         Ok(if b { Self::Error } else { Self::Success })
     }
@@ -86,30 +91,39 @@ impl BuiltinTool {
 /// Shell command text for the Bash tool.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(transparent)]
-pub struct CommandText(String);
-
-impl AsRef<str> for CommandText {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
+pub struct CommandText(pub(super) String);
 
 /// Optional description of what a bash command does (purely informational).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(transparent)]
 pub struct CommandDescription(pub(super) String);
 
-/// Whether to run a command in the background.
-#[derive(Debug, Clone, Copy, Default, Deserialize)]
-#[serde(transparent)]
+/// Whether a command runs in the foreground or background.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[must_use]
-pub struct RunInBackground(bool);
+pub enum ExecutionMode {
+    #[default]
+    Foreground,
+    Background,
+}
 
-impl RunInBackground {
-    /// Returns `true` if background execution was requested.
+impl ExecutionMode {
     #[must_use]
     pub fn is_enabled(self) -> bool {
-        self.0
+        matches!(self, Self::Background)
+    }
+}
+
+impl<'de> Deserialize<'de> for ExecutionMode {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        let b = bool::deserialize(deserializer)?;
+        Ok(if b {
+            Self::Background
+        } else {
+            Self::Foreground
+        })
     }
 }
 
@@ -172,13 +186,7 @@ impl TimeoutMs {
 /// File path provided as tool input.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(transparent)]
-pub struct FilePath(String);
-
-impl AsRef<str> for FilePath {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
+pub struct FilePath(pub(super) String);
 
 /// Line offset for file reading (1-based input, internally 0-based).
 ///
@@ -223,68 +231,32 @@ impl LineLimit {
 /// File content text for the Write tool.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(transparent)]
-pub struct FileContent(String);
-
-impl AsRef<str> for FileContent {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
+pub struct FileContent(pub(super) String);
 
 /// Glob pattern for file matching.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(transparent)]
-pub struct GlobPattern(String);
-
-impl AsRef<str> for GlobPattern {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
+pub struct GlobPattern(pub(super) String);
 
 /// Regex pattern for text search.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(transparent)]
-pub struct SearchPattern(String);
-
-impl AsRef<str> for SearchPattern {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
+pub struct SearchPattern(pub(super) String);
 
 /// Search path for glob/grep tools.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(transparent)]
-pub struct SearchPath(String);
-
-impl AsRef<str> for SearchPath {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
+pub struct SearchPath(pub(super) String);
 
 /// Glob filter for grep tool.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(transparent)]
-pub struct GlobFilter(String);
-
-impl AsRef<str> for GlobFilter {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
+pub struct GlobFilter(pub(super) String);
 
 /// The text to find and replace (`old_string` in Edit tool).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(transparent)]
-pub struct OldString(String);
-
-impl AsRef<str> for OldString {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
+pub struct OldString(pub(super) String);
 
 impl OldString {
     #[must_use]
@@ -296,24 +268,32 @@ impl OldString {
 /// The replacement text (`new_string` in Edit tool).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(transparent)]
-pub struct NewString(String);
+pub struct NewString(pub(super) String);
 
-impl AsRef<str> for NewString {
-    fn as_ref(&self) -> &str {
-        &self.0
+/// Whether to replace all occurrences or just the first unique match.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[must_use]
+pub enum ReplaceMode {
+    /// Replace only the first (unique) match.
+    #[default]
+    First,
+    /// Replace all occurrences.
+    All,
+}
+
+impl ReplaceMode {
+    #[must_use]
+    pub fn enabled(self) -> bool {
+        matches!(self, Self::All)
     }
 }
 
-/// Whether to replace all occurrences or just the first unique match.
-#[derive(Debug, Clone, Copy, Default, Deserialize)]
-#[serde(transparent)]
-#[must_use]
-pub struct ReplaceAll(bool);
-
-impl ReplaceAll {
-    #[must_use]
-    pub fn enabled(self) -> bool {
-        self.0
+impl<'de> Deserialize<'de> for ReplaceMode {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        let b = bool::deserialize(deserializer)?;
+        Ok(if b { Self::All } else { Self::First })
     }
 }
 
@@ -335,13 +315,7 @@ impl MaxReadFileSize {
 /// PDF page range (e.g. `"1-5"`, `"3"`, `"10-20"`).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(transparent)]
-pub struct PdfPages(String);
-
-impl AsRef<str> for PdfPages {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
+pub struct PdfPages(pub(super) String);
 
 // ─── Typed tool inputs ─────────────────────────────────────────
 
@@ -350,10 +324,13 @@ impl AsRef<str> for PdfPages {
 pub struct BashInput {
     pub command: CommandText,
     pub timeout: Option<TimeoutMs>,
-    #[allow(dead_code, reason = "informational field for UI display, not used in execution")]
+    #[allow(
+        dead_code,
+        reason = "informational field for UI display, not used in execution"
+    )]
     pub description: Option<CommandDescription>,
     #[serde(default)]
-    pub run_in_background: Option<RunInBackground>,
+    pub run_in_background: Option<ExecutionMode>,
 }
 
 /// Typed input for the Read tool.
@@ -427,13 +404,18 @@ pub enum GrepOutputMode {
 }
 
 impl<'de> Deserialize<'de> for GrepOutputMode {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
         let s = String::deserialize(deserializer)?;
         match s.as_str() {
             "content" => Ok(Self::Content),
             "files_with_matches" => Ok(Self::FilesWithMatches),
             "count" => Ok(Self::Count),
-            other => Err(serde::de::Error::unknown_variant(other, &["content", "files_with_matches", "count"])),
+            other => Err(serde::de::Error::unknown_variant(
+                other,
+                &["content", "files_with_matches", "count"],
+            )),
         }
     }
 }
@@ -451,56 +433,89 @@ impl ContextLines {
     }
 }
 
-/// Whether to perform case-insensitive search (`rg -i`).
-#[derive(Debug, Clone, Copy, Default, Deserialize)]
-#[serde(transparent)]
+/// Case sensitivity for search (`rg -i`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[must_use]
-pub struct CaseInsensitive(bool);
+pub enum CaseSensitivity {
+    #[default]
+    Sensitive,
+    Insensitive,
+}
 
-impl CaseInsensitive {
+impl CaseSensitivity {
     #[must_use]
     pub fn enabled(self) -> bool {
-        self.0
+        matches!(self, Self::Insensitive)
     }
 }
 
-/// Whether to show line numbers in output (default `true`).
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(transparent)]
-#[must_use]
-pub struct ShowLineNumbers(bool);
+impl<'de> Deserialize<'de> for CaseSensitivity {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        let b = bool::deserialize(deserializer)?;
+        Ok(if b {
+            Self::Insensitive
+        } else {
+            Self::Sensitive
+        })
+    }
+}
 
-impl ShowLineNumbers {
+/// Whether to show line numbers in grep output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
+pub enum LineNumberDisplay {
+    Hide,
+    Show,
+}
+
+impl LineNumberDisplay {
     /// Default: line numbers are shown.
-    pub const DEFAULT: Self = Self(true);
+    pub const DEFAULT: Self = Self::Show;
 
     #[must_use]
     pub fn enabled(self) -> bool {
-        self.0
+        matches!(self, Self::Show)
+    }
+}
+
+impl<'de> Deserialize<'de> for LineNumberDisplay {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        let b = bool::deserialize(deserializer)?;
+        Ok(if b { Self::Show } else { Self::Hide })
     }
 }
 
 /// File type filter for `rg --type TYPE` (e.g. `"js"`, `"py"`, `"rust"`).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(transparent)]
-pub struct RgFileType(String);
+pub struct RgFileType(pub(super) String);
 
-impl AsRef<str> for RgFileType {
-    fn as_ref(&self) -> &str {
-        &self.0
+/// Single-line or multiline search mode (`rg -U --multiline-dotall`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[must_use]
+pub enum MultilineSearch {
+    #[default]
+    SingleLine,
+    Multiline,
+}
+
+impl MultilineSearch {
+    #[must_use]
+    pub fn enabled(self) -> bool {
+        matches!(self, Self::Multiline)
     }
 }
 
-/// Whether to enable multiline mode (`rg -U --multiline-dotall`).
-#[derive(Debug, Clone, Copy, Default, Deserialize)]
-#[serde(transparent)]
-#[must_use]
-pub struct MultilineMode(bool);
-
-impl MultilineMode {
-    #[must_use]
-    pub fn enabled(self) -> bool {
-        self.0
+impl<'de> Deserialize<'de> for MultilineSearch {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        let b = bool::deserialize(deserializer)?;
+        Ok(if b { Self::Multiline } else { Self::SingleLine })
     }
 }
 
@@ -550,12 +565,12 @@ pub struct GrepInput {
     #[serde(alias = "-C")]
     pub context: Option<ContextLines>,
     #[serde(alias = "-i")]
-    pub case_insensitive: Option<CaseInsensitive>,
+    pub case_insensitive: Option<CaseSensitivity>,
     #[serde(alias = "-n")]
-    pub line_numbers: Option<ShowLineNumbers>,
+    pub line_numbers: Option<LineNumberDisplay>,
     #[serde(rename = "type")]
     pub file_type: Option<RgFileType>,
-    pub multiline: Option<MultilineMode>,
+    pub multiline: Option<MultilineSearch>,
     pub head_limit: Option<HeadLimit>,
     pub offset: Option<ResultOffset>,
 }
@@ -567,7 +582,7 @@ pub struct EditInput {
     pub old_string: OldString,
     pub new_string: NewString,
     #[serde(default)]
-    pub replace_all: ReplaceAll,
+    pub replace_all: ReplaceMode,
 }
 
 // ─── Bash output control newtypes ─────────────────────────────
@@ -655,24 +670,12 @@ impl std::fmt::Display for ExitCode {
 /// URL to fetch content from.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(transparent)]
-pub struct FetchUrl(String);
-
-impl AsRef<str> for FetchUrl {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
+pub struct FetchUrl(pub(super) String);
 
 /// Prompt describing what information to extract from fetched content.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(transparent)]
-pub struct FetchPrompt(String);
-
-impl AsRef<str> for FetchPrompt {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
+pub struct FetchPrompt(pub(super) String);
 
 /// Maximum allowed URL length (2000 chars, matching TS).
 #[derive(Debug, Clone, Copy)]
@@ -787,7 +790,10 @@ impl FileSizeBytes {
 }
 
 impl std::fmt::Display for FileSizeBytes {
-    #[allow(clippy::cast_precision_loss, reason = "display-only formatting; exact precision not needed")]
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "display-only formatting; exact precision not needed"
+    )]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         const KIB: usize = 1024;
         const MIB: usize = 1024 * KIB;

@@ -236,11 +236,26 @@ fn tool_output_display() {
 
 #[test]
 fn builtin_tool_from_name() {
-    assert_eq!(BuiltinTool::from_name(&ToolName::from("Bash")), Some(BuiltinTool::Bash));
-    assert_eq!(BuiltinTool::from_name(&ToolName::from("Read")), Some(BuiltinTool::Read));
-    assert_eq!(BuiltinTool::from_name(&ToolName::from("Write")), Some(BuiltinTool::Write));
-    assert_eq!(BuiltinTool::from_name(&ToolName::from("Glob")), Some(BuiltinTool::Glob));
-    assert_eq!(BuiltinTool::from_name(&ToolName::from("Grep")), Some(BuiltinTool::Grep));
+    assert_eq!(
+        BuiltinTool::from_name(&ToolName::from("Bash")),
+        Some(BuiltinTool::Bash)
+    );
+    assert_eq!(
+        BuiltinTool::from_name(&ToolName::from("Read")),
+        Some(BuiltinTool::Read)
+    );
+    assert_eq!(
+        BuiltinTool::from_name(&ToolName::from("Write")),
+        Some(BuiltinTool::Write)
+    );
+    assert_eq!(
+        BuiltinTool::from_name(&ToolName::from("Glob")),
+        Some(BuiltinTool::Glob)
+    );
+    assert_eq!(
+        BuiltinTool::from_name(&ToolName::from("Grep")),
+        Some(BuiltinTool::Grep)
+    );
     assert_eq!(BuiltinTool::from_name(&ToolName::from("Unknown")), None);
 }
 

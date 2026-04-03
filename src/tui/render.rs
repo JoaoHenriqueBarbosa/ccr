@@ -3,16 +3,14 @@
 //! Pipeline: `PreparedBlocks → MeasuredBlocks → ViewportSlice → render()`
 
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
-    Frame,
 };
 
-use crate::types::{
-    ContentBlock, ConversationMessage, Role, ScrollOffset, TermRows,
-};
+use crate::types::{ContentBlock, ConversationMessage, Role, ScrollOffset, TermRows};
 
 use super::state::App;
 
@@ -58,16 +56,24 @@ struct ViewportSlice {
 impl PreparedBlocks {
     #[allow(clippy::cast_possible_truncation)]
     fn measure(self, width: u16) -> MeasuredBlocks {
-        let heights: Vec<TermRows> = self.blocks.iter().map(|b| {
-            let margin = u16::from(b.spacing == Spacing::MarginTop);
-            let text = Text::from(b.lines.clone());
-            let content = Paragraph::new(text)
-                .wrap(Wrap { trim: false })
-                .line_count(width) as u16;
-            TermRows::from(margin + content)
-        }).collect();
+        let heights: Vec<TermRows> = self
+            .blocks
+            .iter()
+            .map(|b| {
+                let margin = u16::from(b.spacing == Spacing::MarginTop);
+                let text = Text::from(b.lines.clone());
+                let content = Paragraph::new(text)
+                    .wrap(Wrap { trim: false })
+                    .line_count(width) as u16;
+                TermRows::from(margin + content)
+            })
+            .collect();
         let total_height = heights.iter().copied().sum();
-        MeasuredBlocks { blocks: self.blocks, heights, total_height }
+        MeasuredBlocks {
+            blocks: self.blocks,
+            heights,
+            total_height,
+        }
     }
 }
 
@@ -109,7 +115,9 @@ impl ViewportSlice {
 
             let render_y = TermRows::from(y.max(0) as u16);
             let clip_top = TermRows::from((-y).max(0) as u16);
-            let render_h = h.saturating_sub(clip_top).min(self.visible.saturating_sub(render_y));
+            let render_h = h
+                .saturating_sub(clip_top)
+                .min(self.visible.saturating_sub(render_y));
 
             if render_h == TermRows::default() {
                 y += h.as_i32();
@@ -137,8 +145,8 @@ impl ViewportSlice {
         }
 
         if self.total_height > self.visible {
-            let mut scrollbar_state = ScrollbarState::new(self.max_scroll.as_usize())
-                .position(self.scroll.as_usize());
+            let mut scrollbar_state =
+                ScrollbarState::new(self.max_scroll.as_usize()).position(self.scroll.as_usize());
             let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
                 .begin_symbol(None)
                 .end_symbol(None)
@@ -169,11 +177,18 @@ fn build_user_block(msg: &ConversationMessage) -> MessageBlock {
     if text.is_empty() {
         let mut lines = Vec::new();
         for block in &msg.content {
-            if let ContentBlock::ToolResult { content, is_error, .. } = block {
+            if let ContentBlock::ToolResult {
+                content, is_error, ..
+            } = block
+            {
                 build_tool_result_lines(&mut lines, content, *is_error);
             }
         }
-        MessageBlock { lines, bg: None, spacing: Spacing::Flush }
+        MessageBlock {
+            lines,
+            bg: None,
+            spacing: Spacing::Flush,
+        }
     } else {
         MessageBlock {
             lines: vec![Line::from(vec![
@@ -196,7 +211,11 @@ fn build_tool_result_lines(
         serde_json::Value::String(s) => s.clone(),
         other => other.to_string(),
     };
-    let color = if is_error.is_error() { Color::Red } else { Color::DarkGray };
+    let color = if is_error.is_error() {
+        Color::Red
+    } else {
+        Color::DarkGray
+    };
     let result_lines: Vec<&str> = result_text.lines().collect();
     let max_lines = if is_error.is_error() { 10 } else { 3 };
     for (i, line) in result_lines.iter().take(max_lines).enumerate() {
@@ -238,7 +257,11 @@ fn build_assistant_block(msg: &ConversationMessage) -> MessageBlock {
             _ => {}
         }
     }
-    MessageBlock { lines, bg: None, spacing: Spacing::MarginTop }
+    MessageBlock {
+        lines,
+        bg: None,
+        spacing: Spacing::MarginTop,
+    }
 }
 
 /// Convert all messages + streaming state into a list of renderable blocks.
@@ -254,8 +277,15 @@ fn build_message_blocks(app: &App) -> Vec<MessageBlock> {
 
     if app.is_streaming() && !app.streaming.is_empty() {
         let mut lines = markdown_to_lines(app.streaming.as_ref());
-        lines.push(Line::from(Span::styled("  ▊", Style::default().fg(Color::White))));
-        blocks.push(MessageBlock { lines, bg: None, spacing: Spacing::MarginTop });
+        lines.push(Line::from(Span::styled(
+            "  ▊",
+            Style::default().fg(Color::White),
+        )));
+        blocks.push(MessageBlock {
+            lines,
+            bg: None,
+            spacing: Spacing::MarginTop,
+        });
     } else if app.is_streaming() {
         blocks.push(MessageBlock {
             lines: vec![Line::from(Span::styled(
@@ -276,13 +306,13 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(1),     // messages
-            Constraint::Length(1),   // spinner line
-            Constraint::Length(1),   // separator top
-            Constraint::Length(1),   // input
-            Constraint::Length(1),   // separator bottom
-            Constraint::Length(1),   // status bar
-            Constraint::Length(1),   // padding
+            Constraint::Min(1),    // messages
+            Constraint::Length(1), // spinner line
+            Constraint::Length(1), // separator top
+            Constraint::Length(1), // input
+            Constraint::Length(1), // separator bottom
+            Constraint::Length(1), // status bar
+            Constraint::Length(1), // padding
         ])
         .split(f.area());
 
@@ -295,7 +325,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 }
 
 fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
-    let prepared = PreparedBlocks { blocks: build_message_blocks(app) };
+    let prepared = PreparedBlocks {
+        blocks: build_message_blocks(app),
+    };
     let measured = prepared.measure(area.width);
     app.total_content_height = measured.total_height;
     let viewport = measured.clip_to_viewport(area.height, app.scroll);
@@ -306,9 +338,21 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
 fn draw_activity_line(f: &mut Frame, app: &App, area: Rect) {
     let line = if app.is_streaming() {
         const WORDS: &[&str] = &[
-            "Thinking", "Pondering", "Reasoning", "Computing", "Analyzing",
-            "Processing", "Evaluating", "Crafting", "Generating", "Working",
-            "Musing", "Brewing", "Cooking", "Noodling", "Crunching",
+            "Thinking",
+            "Pondering",
+            "Reasoning",
+            "Computing",
+            "Analyzing",
+            "Processing",
+            "Evaluating",
+            "Crafting",
+            "Generating",
+            "Working",
+            "Musing",
+            "Brewing",
+            "Cooking",
+            "Noodling",
+            "Crunching",
         ];
         let elapsed = app.turn_timer.elapsed_ms().unwrap_or(0);
         let idx = (elapsed / 2000) as usize % WORDS.len();
@@ -322,7 +366,11 @@ fn draw_activity_line(f: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(Color::Rgb(153, 153, 153)),
             ),
             Span::styled(
-                if secs > 0 { format!(" ({secs}s)") } else { String::new() },
+                if secs > 0 {
+                    format!(" ({secs}s)")
+                } else {
+                    String::new()
+                },
                 Style::default().fg(Color::DarkGray),
             ),
         ])
@@ -340,7 +388,10 @@ fn draw_activity_line(f: &mut Frame, app: &App, area: Rect) {
 fn draw_separator_plain(f: &mut Frame, area: Rect) {
     let sep = "─".repeat(usize::from(area.width));
     f.render_widget(
-        Paragraph::new(Line::from(Span::styled(sep, Style::default().fg(Color::DarkGray)))),
+        Paragraph::new(Line::from(Span::styled(
+            sep,
+            Style::default().fg(Color::DarkGray),
+        ))),
         area,
     );
 }
@@ -354,7 +405,10 @@ fn draw_input(f: &mut Frame, app: &App, area: Rect) {
     let paragraph = Paragraph::new(line).block(Block::default().borders(Borders::NONE));
     f.render_widget(paragraph, area);
 
-    f.set_cursor_position((area.x + 4 + app.input.display_cursor_offset().as_u16(), area.y));
+    f.set_cursor_position((
+        area.x + 4 + app.input.display_cursor_offset().as_u16(),
+        area.y,
+    ));
 }
 
 fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
@@ -367,16 +421,25 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
             Style::default().fg(Color::DarkGray),
         ),
         Span::styled("  ", Style::default()),
-        Span::styled(app.display_path.as_ref().to_owned(), Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            app.display_path.as_ref().to_owned(),
+            Style::default().fg(Color::DarkGray),
+        ),
     ];
 
     if let Some(b) = &app.git_branch {
         parts.push(Span::styled("  ", Style::default()));
-        parts.push(Span::styled(b.as_ref().to_owned(), Style::default().fg(Color::DarkGray)));
+        parts.push(Span::styled(
+            b.as_ref().to_owned(),
+            Style::default().fg(Color::DarkGray),
+        ));
     }
 
     parts.push(Span::styled("  ", Style::default()));
-    parts.push(Span::styled(app.display_model.as_ref().to_owned(), Style::default().fg(Color::DarkGray)));
+    parts.push(Span::styled(
+        app.display_model.as_ref().to_owned(),
+        Style::default().fg(Color::DarkGray),
+    ));
 
     if !tokens.is_empty() {
         parts.push(Span::styled(

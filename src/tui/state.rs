@@ -1,9 +1,8 @@
 //! Application state and typed events between backend and UI.
 
 use crate::types::{
-    AppError, ConversationMessage, DeltaText, DeltaThinking, InputBuffer, ModelId,
-    ScrollOffset, ShortModelName, ShortPath, StreamingBuffer, TokenCount,
-    ToolName, TurnTimer, WorkingDir,
+    AppError, ConversationMessage, DeltaText, DeltaThinking, InputBuffer, ModelId, ScrollOffset,
+    ShortModelName, ShortPath, StreamingBuffer, TokenCount, ToolName, TurnTimer, WorkingDir,
 };
 
 // ─── TUI-local newtypes ─────────────────────────────────────────
@@ -116,10 +115,7 @@ impl App {
             git_branch,
             username: Username(std::env::var("USER").unwrap_or_else(|_| "user".into())),
             hostname: Hostname(
-                hostname::get().map_or_else(
-                    |_| "host".into(),
-                    |h| h.to_string_lossy().to_string(),
-                ),
+                hostname::get().map_or_else(|_| "host".into(), |h| h.to_string_lossy().to_string()),
             ),
             display_path,
             display_model,

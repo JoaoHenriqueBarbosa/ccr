@@ -59,11 +59,7 @@ impl ModelId {
 
     /// Produce a shortened display name (strips `claude-` prefix and date suffixes).
     pub fn short_name(&self) -> ShortModelName {
-        ShortModelName(
-            self.0
-                .replace("claude-", "")
-                .replace("-20250514", ""),
-        )
+        ShortModelName(self.0.replace("claude-", "").replace("-20250514", ""))
     }
 }
 

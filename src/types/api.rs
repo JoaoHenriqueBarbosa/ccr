@@ -270,10 +270,7 @@ pub enum StreamEvent {
         content_block: ContentBlock,
     },
     #[serde(rename = "content_block_delta")]
-    ContentBlockDelta {
-        index: BlockIndex,
-        delta: Delta,
-    },
+    ContentBlockDelta { index: BlockIndex, delta: Delta },
     #[serde(rename = "content_block_stop")]
     ContentBlockStop { index: BlockIndex },
     #[serde(rename = "message_delta")]

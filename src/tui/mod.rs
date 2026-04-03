@@ -14,20 +14,19 @@ mod markdown;
 mod render;
 mod state;
 
-use std::sync::Arc;
 use crossterm::event::{
-    self, Event, KeyCode, KeyModifiers, MouseEventKind,
-    EnableMouseCapture, DisableMouseCapture,
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers, MouseEventKind,
 };
 use crossterm::execute;
 use ratatui::DefaultTerminal;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::api::AnthropicClient;
 use crate::tools::get_tool_definitions;
 use crate::types::{
-    ApiKey, ApiMessage, ContentBlock, ConversationMessage, MessageOrigin,
-    MessageUuid, ModelId, Role, ScrollOffset, SystemPrompt, ToolDefinition, TurnTimer,
+    ApiKey, ApiMessage, ContentBlock, ConversationMessage, MessageOrigin, MessageUuid, ModelId,
+    Role, ScrollOffset, SystemPrompt, ToolDefinition, TurnTimer,
 };
 
 use state::{App, BackendEvent, RunState};
@@ -75,7 +74,14 @@ fn run_app(
                 _ => {}
             },
             Event::Key(key) => {
-                handle_key_event(&mut app, key, &mut backend_rx, &client, &system_prompt, &tools);
+                handle_key_event(
+                    &mut app,
+                    key,
+                    &mut backend_rx,
+                    &client,
+                    &system_prompt,
+                    &tools,
+                );
             }
             _ => {}
         }
@@ -186,10 +192,7 @@ fn handle_key_event(
 }
 
 /// Handle Ctrl+C — cancel streaming, clear input, or quit.
-fn handle_ctrl_c(
-    app: &mut App,
-    backend_rx: &mut Option<mpsc::UnboundedReceiver<BackendEvent>>,
-) {
+fn handle_ctrl_c(app: &mut App, backend_rx: &mut Option<mpsc::UnboundedReceiver<BackendEvent>>) {
     if app.is_streaming() {
         app.state = RunState::Idle;
         if !app.streaming.is_empty() {
@@ -227,7 +230,8 @@ fn handle_enter(
 
     let user_text = app.input.take();
     app.scroll = ScrollOffset::default();
-    app.messages.push(ConversationMessage::user_text(&user_text));
+    app.messages
+        .push(ConversationMessage::user_text(&user_text));
     app.state = RunState::Streaming;
     app.streaming.clear();
     app.turn_timer = TurnTimer::start();
@@ -235,7 +239,11 @@ fn handle_enter(
     let (tx, rx) = mpsc::unbounded_channel();
     *backend_rx = Some(rx);
 
-    let msgs: Vec<ApiMessage> = app.messages.iter().map(ConversationMessage::to_api_message).collect();
+    let msgs: Vec<ApiMessage> = app
+        .messages
+        .iter()
+        .map(ConversationMessage::to_api_message)
+        .collect();
     let c = Arc::clone(client);
     let sys = Arc::clone(system_prompt);
     let tls = Arc::clone(tools);

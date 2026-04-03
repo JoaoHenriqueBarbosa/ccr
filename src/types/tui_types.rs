@@ -164,11 +164,12 @@ impl WorkingDir {
         // Resolve the path as much as possible (parent dirs must exist for canonicalize).
         // For write operations the file might not exist yet, so we canonicalize the parent.
         let resolved = if path.exists() {
-            path.canonicalize()
-                .unwrap_or_else(|_| path.clone())
+            path.canonicalize().unwrap_or_else(|_| path.clone())
         } else if let Some(parent) = path.parent() {
             if parent.exists() {
-                let canon_parent = parent.canonicalize().unwrap_or_else(|_| parent.to_path_buf());
+                let canon_parent = parent
+                    .canonicalize()
+                    .unwrap_or_else(|_| parent.to_path_buf());
                 canon_parent.join(path.file_name().unwrap_or_default())
             } else {
                 path.clone()

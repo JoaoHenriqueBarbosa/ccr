@@ -63,6 +63,22 @@ pub enum AppError {
     /// Path traversal attempt — tool tried to escape the working directory.
     #[error("path traversal blocked: {attempted} is outside working directory")]
     PathTraversal { attempted: String },
+
+    /// File exceeds the maximum allowed size for the operation.
+    #[error("file too large: {message}")]
+    FileTooLarge { message: String },
+
+    /// Invalid URL provided to `WebFetch`.
+    #[error("{message}")]
+    InvalidUrl { message: String },
+
+    /// HTTP fetch failed (network, timeout, redirect).
+    #[error("{message}")]
+    HttpError { message: String },
+
+    /// Filesystem validation failed (directory not found, device path, etc.).
+    #[error("{message}")]
+    FsValidation { message: String },
 }
 
 /// Convenience alias used throughout the crate.

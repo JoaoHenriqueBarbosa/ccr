@@ -61,7 +61,11 @@ impl ConversationMessage {
     }
 
     #[must_use]
-    pub fn tool_result(tool_use_id: &ToolUseId, output: &ToolOutput, is_error: ToolResultStatus) -> Self {
+    pub fn tool_result(
+        tool_use_id: &ToolUseId,
+        output: &ToolOutput,
+        is_error: ToolResultStatus,
+    ) -> Self {
         Self::user(vec![ContentBlock::ToolResult {
             tool_use_id: tool_use_id.clone(),
             content: serde_json::Value::String(output.as_ref().to_string()),
