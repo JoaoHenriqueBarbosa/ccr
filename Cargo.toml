@@ -1,0 +1,50 @@
+[package]
+name = "ccr"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A terminal-native AI coding assistant powered by Claude — built from scratch in Rust"
+license = "MIT"
+repository = "https://github.com/JoaoHenriqueBarbosa/ccr"
+authors = ["João Henrique Barbosa"]
+categories = ["command-line-utilities"]
+keywords = ["cli", "ai", "coding-assistant", "terminal"]
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"
+
+[dependencies]
+# API & HTTP
+reqwest = { version = "0.12", features = ["json", "stream"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "fs"] }
+futures = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# TUI
+ratatui = { version = "0.30", features = ["unstable-rendered-line-info"] }
+crossterm = "0.28"
+pulldown-cmark = "0.13"
+
+# HTML → Markdown
+html2md = "0.2"
+url = "2"
+
+# Utils
+thiserror = "2"
+dirs = "6"
+hostname = "0.4"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+proptest = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
