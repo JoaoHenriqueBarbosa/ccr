@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  clippy:
+    name: Clippy (pedantic = deny)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets
+
+  test:
+    name: Build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release
+      - run: cargo test
+
+  badges:
+    name: Update dynamic badges
+    runs-on: ubuntu-latest
+    needs: [test]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - name: Compute metrics
+        id: metrics
+        run: |
+          TESTS=$(( $(grep -rn '#\[test\]' src --include='*.rs' | wc -l) + $(grep -rn '#\[tokio::test\]' src --include='*.rs' | wc -l) ))
+          LOC=$(find src -name '*.rs' | xargs wc -l | tail -1 | awk '{print $1}')
+          echo "tests=$TESTS" >> "$GITHUB_OUTPUT"
+          echo "loc=$LOC" >> "$GITHUB_OUTPUT"
+      - name: Write badge endpoints
+        run: |
+          mkdir -p .github/badges
+          cat > .github/badges/tests.json <<EOF
+          {"schemaVersion":1,"label":"tests","message":"${{ steps.metrics.outputs.tests }}","color":"brightgreen"}
+          EOF
+          cat > .github/badges/loc.json <<EOF
+          {"schemaVersion":1,"label":"lines of Rust","message":"${{ steps.metrics.outputs.loc }}","color":"blue"}
+          EOF
+      - name: Commit badges if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet .github/badges; then
+            git add .github/badges
+            git commit -m "ci(badges): refresh metrics [skip ci]"
+            git push
+          else
+            echo "badges unchanged"
+          fi
