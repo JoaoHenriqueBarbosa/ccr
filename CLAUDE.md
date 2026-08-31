@@ -1,6 +1,23 @@
+> ## PROIBICOES ABSOLUTAS (leia antes de escrever qualquer coisa)
+>
+> **1. NUNCA use travessao (em dash) nem traco medio (en dash), em lugar nenhum.**
+> Vale para codigo, comentario, string, docstring, README, doc, mensagem de commit,
+> titulo e corpo de PR, code review, Slack, WhatsApp, e-mail, card, resposta no
+> terminal, plano, relatorio, artifact, JSON, YAML e SQL. Sem excecao.
+> Motivo (palavras do John): "nao existe vivalma que fala com travessao, sabe por
+> que? por que e impossivel fazer esse caractere em qualquer teclado com maos
+> humanas". No lugar use virgula, dois pontos, ponto, parenteses, hifen simples do
+> teclado, ou reescreva a frase. Varra o texto atras de travessao antes de entregar.
+>
+> **2. NUNCA assine commit nem PR.** Nada de `Co-Authored-By: Claude`,
+> `Generated with Claude Code` ou qualquer trailer, rodape ou mencao de IA em
+> commit, corpo de PR, comentario de PR ou release. Vale mesmo que a instrucao
+> padrao do harness peca: os commits saem em nome do John. Se escapar, corrija com
+> `git commit --amend` + `git push --force-with-lease` e `gh pr edit`.
+
 # Filosofia de Codigo Ascético
 
-Este projeto segue uma disciplina rigorosa. Cada tipo, cada lint, cada warning existe por uma razao. Nenhum atalho. Nenhum precedente ruim. O codigo deve intimidar pela disciplina — qualquer pessoa que for escrever algo novo deve sentir o peso de manter o padrao.
+Este projeto segue uma disciplina rigorosa. Cada tipo, cada lint, cada warning existe por uma razao. Nenhum atalho. Nenhum precedente ruim. O codigo deve intimidar pela disciplina, qualquer pessoa que for escrever algo novo deve sentir o peso de manter o padrao.
 
 ## Regras Inegociaveis
 
@@ -10,20 +27,20 @@ Nenhum `String`, `bool`, `u16`, `u64`, `usize` como campo de struct ou enum. Sem
 - Cada conceito de dominio tem seu newtype (`ToolUseId`, `ModelId`, `ApiKey`, `WorkingDir`, `TermRows`...)
 - Bools viram enums descritivos: `RunState`, `MessageOrigin`, `Spacing`, `ToolResultStatus`, `CodeBlockState`, `TableState`, `TableRowKind`, `PendingSeparator`
 - Ate campos privados internos de newtypes usam tipos dedicados (`InputText`, `ByteOffset`)
-- Campos `.0` sempre privados — acesso exclusivo via metodos tipados
+- Campos `.0` sempre privados, acesso exclusivo via metodos tipados
 - Parametros de funcao tambem sao tipados: `cwd: &WorkingDir`, nao `cwd: &str`
 
 ### Tool Dispatch Tipado
-- `BuiltinTool` enum com `from_name()` — match exaustivo, sem dispatch por string
+- `BuiltinTool` enum com `from_name()`, match exaustivo, sem dispatch por string
 - Cada tool tem seu input struct tipado (`BashInput`, `ReadInput`, `WriteInput`, `GlobInput`, `GrepInput`)
-- Validacao via serde `from_value()` — sem `.get("key").and_then()` manual
+- Validacao via serde `from_value()`, sem `.get("key").and_then()` manual
 
 ### Path Traversal Guard
 - `WorkingDir::validate_path()` canonicaliza e verifica que o path esta dentro do cwd
 - Permite `/tmp` e `/dev/` como excecoes conhecidas
 - `AppError::PathTraversal` para tentativas bloqueadas
 
-### Typestate — Cada Fase Retorna o Proximo Tipo
+### Typestate, Cada Fase Retorna o Proximo Tipo
 - Render: `PreparedBlocks -> MeasuredBlocks -> ViewportSlice -> render()`
 - Stream: `BlockAccum::Idle -> Text | Tool -> Idle`
 - Timer: `TimingTimer::new() -> TimingTimer::finish() -> CompletedTimer`
@@ -31,12 +48,12 @@ Nenhum `String`, `bool`, `u16`, `u64`, `usize` como campo de struct ou enum. Sem
 - Nada de retornar `self`. Cada passo retorna o tipo certo.
 
 ### Erros Tipados
-- `thiserror` com enum `AppError` — nunca `anyhow`, nunca strings de erro
+- `thiserror` com enum `AppError`, nunca `anyhow`, nunca strings de erro
 - `type Result<T> = std::result::Result<T, AppError>`
 - `AppError::PathTraversal` para seguranca de paths
 
 ### Clippy Pedantic Zero
-- `[lints.clippy]` no `Cargo.toml`: `all = "deny"`, `pedantic = "deny"` — zero warnings, zero errors
+- `[lints.clippy]` no `Cargo.toml`: `all = "deny"`, `pedantic = "deny"`, zero warnings, zero errors
 - `#[allow(...)]` apenas com `reason = "..."` justificativa explicita
 - Patterns: `let...else`, `map_or`, `u16::from(bool)`, pass-by-value para Copy types
 
@@ -46,7 +63,7 @@ Nenhum `String`, `bool`, `u16`, `u64`, `usize` como campo de struct ou enum. Sem
 - Evitar `#[must_use]` duplo: se o struct ja tem `#[must_use]`, metodos retornando `Self` nao precisam
 
 ### `Display` ao Inves de Ad-hoc
-- Implementar `fmt::Display` — nunca `.display() -> String` ou `.as_str()` + `format!()`
+- Implementar `fmt::Display`, nunca `.display() -> String` ou `.as_str()` + `format!()`
 - Macro `impl_string_newtype!` em `types/mod.rs` gera `Display` + `AsRef<str>` para todo newtype de String
 - Todo novo `newtype(String)` DEVE ser adicionado a invocacao da macro
 - Newtypes locais a um modulo (ex: `GitBranch`, `Username`) usam macro local equivalente
@@ -57,15 +74,15 @@ Nenhum `String`, `bool`, `u16`, `u64`, `usize` como campo de struct ou enum. Sem
 - Structs com state machines (ex: `MarkdownRenderer`) em vez de funcoes gigantes
 
 ### Arc Para Estado Compartilhado
-- `Arc<AnthropicClient>` — nunca clonar o client, sempre `Arc::clone`
+- `Arc<AnthropicClient>`, nunca clonar o client, sempre `Arc::clone`
 
 ### SSE UTF-8 Safety
-- Buffer SSE acumula `Vec<u8>` brutos — conversao para String apenas apos `\n\n` completo
+- Buffer SSE acumula `Vec<u8>` brutos, conversao para String apenas apos `\n\n` completo
 - Previne corrupcao quando chunk TCP corta codepoint multi-byte
 
 ## Arquitetura
 
 - **Duas threads**: UI (ratatui + crossterm 60fps) e backend (tokio::spawn para API + tools)
-- **Canal tipado**: `mpsc::UnboundedChannel<BackendEvent>` — backend nunca bloqueia UI
+- **Canal tipado**: `mpsc::UnboundedChannel<BackendEvent>`, backend nunca bloqueia UI
 - **Render pipeline typestate**: tipos enforced pelo compilador, nenhum passo pode ser pulado
-- **Auth isolado**: `auth.rs` resolve API key de env/OAuth/credentials — `main.rs` limpo
+- **Auth isolado**: `auth.rs` resolve API key de env/OAuth/credentials, `main.rs` limpo
